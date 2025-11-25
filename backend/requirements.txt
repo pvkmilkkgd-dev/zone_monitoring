@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-jose
+passlib[bcrypt]
+pydantic>=2.0
+pydantic-settings>=2.0
+sqlalchemy>=2.0
