@@ -1,12 +1,43 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zone Monitoring</title>
   </head>
-  <body class="bg-slate-50">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+  <body>
+    <h1>Zone Monitoring</h1>
+
+    <div id="user-info"></div>
+    <button id="logout-btn">Выйти</button>
+
+    <h2>Зоны</h2>
+    <table id="zones-table" border="1">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Название</th>
+          <th>Активна</th>
+          <th>Управление</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>События</h2>
+    <table id="events-table" border="1">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Зона</th>
+          <th>Тип</th>
+          <th>Время</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="main-message"></div>
+
+    <script type="module" src="/src/mainPage.ts"></script>
   </body>
 </html>

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 
 class TokenPayload(BaseModel):
@@ -46,4 +46,3 @@ def require_role(required_role: str):
         return current_user
 
     return dependency
-

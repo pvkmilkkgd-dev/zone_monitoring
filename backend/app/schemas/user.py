@@ -1,20 +1,15 @@
-from typing import Optional
-
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, constr
 
 
-class UserBase(BaseModel):
-    username: str
-    role: str = "viewer"
+class UserCreate(BaseModel):
+    username: constr(min_length=3, max_length=50)
+    password: constr(min_length=6, max_length=128)
 
 
-class UserCreate(UserBase):
-    password: str
-
-
-class User(UserBase):
+class UserRead(BaseModel):
     id: int
-    hashed_password: str = ""
+    username: str
+    role: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,4 +17,4 @@ class User(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
-    role: Optional[str] = None
+    role: str | None = None

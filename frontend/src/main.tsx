@@ -1,22 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import "./index.css";
-import MapPage from "./pages/MapPage";
-import LoginPage from "./pages/LoginPage";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App";
 
-const App = () => (
-  <BrowserRouter>
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/map" element={<MapPage />} />
-      <Route path="*" element={<Navigate to="/map" replace />} />
-    </Routes>
-  </BrowserRouter>
-);
-
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </React.StrictMode>,
 );
