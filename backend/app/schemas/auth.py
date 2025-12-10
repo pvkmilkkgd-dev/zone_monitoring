@@ -1,25 +1,25 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, constr
 
 
-class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=100)
-    password: str
-    password_confirm: str
-
-    @validator("password_confirm")
-    def passwords_match(cls, v, values):
-        if "password" in values and v != values["password"]:
-            raise ValueError("Пароли не совпадают")
-        return v
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
+class Token(BaseModel):
     access_token: str
     token_type: str
-    username: str
+
+
+class UserCreate(BaseModel):
+    username: constr(min_length=3)
+    password: constr(min_length=6)
     role: str
+
+
+class BootstrapAdminCreate(BaseModel):
+    """Создание первого администратора системы."""
+
+    username: constr(min_length=3)
+    password: constr(min_length=6)
+
+
+class BootstrapStatus(BaseModel):
+    """Статус инициализации системы."""
+
+    needs_bootstrap: bool

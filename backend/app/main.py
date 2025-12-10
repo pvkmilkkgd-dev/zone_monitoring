@@ -1,33 +1,35 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.routes import auth as auth_routes, events as events_routes
-from app.api.v1.routes import maps, zones, zone_state, users
+from app.api.v1.admin_settings import router as admin_settings_router
+from app.api.v1.routes.auth import router as auth_router
+from app.core.bootstrap import require_bootstrap_completed
 
-app = FastAPI(title="Zone Monitoring API", version="0.1.0")
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+app = FastAPI(
+    title="Debug App",
+    version="0.1.0",
+)
 
+# CORS — по желанию, можно убрать
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-api_prefix = "/api/v1"
-app.include_router(auth_routes.router, prefix="/api/v1/auth")
-app.include_router(events_routes.router, prefix="/api/v1")
-app.include_router(zones.router, prefix=api_prefix, tags=["zones"])
-app.include_router(zone_state.router, prefix=api_prefix, tags=["zone_state"])
-app.include_router(maps.router, prefix=api_prefix, tags=["maps"])
-app.include_router(users.router, prefix=api_prefix, tags=["users"])
 
-
-@app.get("/health")
-def health():
+@app.get("/ping", tags=["default"])
+def ping():
     return {"status": "ok"}
+
+
+# 🔹 Подключаем роутеры
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(
+    admin_settings_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_bootstrap_completed)],
+)

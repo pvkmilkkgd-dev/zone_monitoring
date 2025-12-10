@@ -1,60 +1,64 @@
 import { FormEvent, useState } from "react";
-import { login } from "../api/auth";
+import { loginRequest } from "../api/client";
 
 type Props = {
-  onLoggedIn?: () => void;
+  onSuccess: (token: string) => void;
 };
 
-const LoginForm = ({ onLoggedIn }: Props) => {
+export function LoginForm({ onSuccess }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setLoading(true);
+
     try {
-      await login({ username, password });
-      onLoggedIn?.();
+      const token = await loginRequest(username, password);
+      onSuccess(token);
     } catch (err) {
-      setError("Не удалось войти. Проверьте логин/пароль.");
       console.error(err);
+      setError("Неверный логин или пароль, либо ошибка сервера");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="card space-y-4 w-full max-w-md">
-      <div className="space-y-1">
-        <label className="text-sm font-medium text-slate-700">Логин</label>
-        <input
-          className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="admin"
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="text-sm font-medium text-slate-700">Пароль</label>
-        <input
-          type="password"
-          className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••"
-        />
-      </div>
-      {error && <div className="text-sm text-red-600">{error}</div>}
-      <button
-        type="submit"
-        className="w-full bg-primary text-white rounded-lg py-2 font-semibold hover:brightness-95 transition"
-      >
-        Войти
-      </button>
-      <p className="text-xs text-slate-500">
-        Токен сохраняется в localStorage. После добавления реального API добавить логику обновления токена.
-      </p>
-    </form>
-  );
-};
+    <div className="card">
+      <h2>Вход</h2>
+      <form onSubmit={handleSubmit} className="form">
+        <label className="form-label">
+          Логин
+          <input
+            type="text"
+            className="input"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+          />
+        </label>
 
-export default LoginForm;
+        <label className="form-label">
+          Пароль
+          <input
+            type="password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </label>
+
+        {error && <div className="error-msg">{error}</div>}
+
+        <button type="submit" className="btn-primary" disabled={loading}>
+          {loading ? "Вхожу..." : "Войти"}
+        </button>
+      </form>
+    </div>
+  );
+}
