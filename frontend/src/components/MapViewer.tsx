@@ -23,11 +23,11 @@ const MapViewer = ({ onZoneSelect }: Props) => {
 
   return (
     <div className="card h-full min-h-[320px] flex items-center justify-center">
-      {/* TODO: Embed real map viewer (e.g., react-leaflet) with GeoJSON overlays */}
       <div className="text-center space-y-2">
-        <div className="text-lg font-semibold">Map placeholder</div>
+        <div className="text-lg font-semibold">Карта в разработке</div>
         <p className="text-sm text-slate-500">
-          Загрузка карты будет доступна администратору. Зоны будут отображаться как GeoJSON.
+          Здесь появится интерактивная карта зон с GeoJSON-данными. Пока выберите зону из списка для загрузки
+          состояния.
         </p>
       </div>
     </div>

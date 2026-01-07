@@ -1,0 +1,354 @@
+import { useEffect, useState } from "react";
+import { fetchSystemSettings, updateSystemSettings } from "../api";
+
+const REGIONS = [
+  "╨Р╨╗╤В╨░╨╣╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Р╨╝╤Г╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Р╤А╤Е╨░╨╜╨│╨╡╨╗╤М╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Р╤Б╤В╤А╨░╤Е╨░╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨С╨╡╨╗╨│╨╛╤А╨╛╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨С╤А╤П╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Т╨╗╨░╨┤╨╕╨╝╨╕╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Т╨╛╨╗╨│╨╛╨│╤А╨░╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Т╨╛╨╗╨╛╨│╨╛╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Т╨╛╤А╨╛╨╜╨╡╨╢╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Х╨▓╤А╨╡╨╣╤Б╨║╨░╤П ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ч╨░╨▒╨░╨╣╨║╨░╨╗╤М╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Ш╨▓╨░╨╜╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ш╤А╨║╤Г╤В╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╨░╨▒╨░╤А╨┤╨╕╨╜╨╛-╨С╨░╨╗╨║╨░╤А╤Б╨║╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨Ъ╨░╨╗╨╕╨╜╨╕╨╜╨│╤А╨░╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╨░╨╗╤Г╨╢╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╨░╨╝╤З╨░╤В╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Ъ╨░╤А╨░╤З╨░╨╡╨▓╨╛-╨з╨╡╤А╨║╨╡╤Б╤Б╨║╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨Ъ╨╡╨╝╨╡╤А╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╨╕╤А╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╨╛╤Б╤В╤А╨╛╨╝╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╤А╨░╤Б╨╜╨╛╨┤╨░╤А╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Ъ╤А╨░╤Б╨╜╨╛╤П╤А╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Ъ╤Г╤А╨│╨░╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ъ╤Г╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ы╨╡╨╜╨╕╨╜╨│╤А╨░╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ы╨╕╨┐╨╡╤Ж╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ь╨░╨│╨░╨┤╨░╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ь╨╛╤Б╨║╨▓╨░",
+  "╨Ь╨╛╤Б╨║╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ь╤Г╤А╨╝╨░╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Э╨╡╨╜╨╡╤Ж╨║╨╕╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╨╛╨║╤А╤Г╨│",
+  "╨Э╨╕╨╢╨╡╨│╨╛╤А╨╛╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Э╨╛╨▓╨│╨╛╤А╨╛╨┤╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Э╨╛╨▓╨╛╤Б╨╕╨▒╨╕╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ю╨╝╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ю╤А╨╡╨╜╨▒╤Г╤А╨│╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ю╤А╨╗╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Я╨╡╨╜╨╖╨╡╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Я╨╡╤А╨╝╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Я╤А╨╕╨╝╨╛╤А╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨Я╤Б╨║╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Р╨┤╤Л╨│╨╡╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Р╨╗╤В╨░╨╣",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨С╨░╤И╨║╨╛╤А╤В╨╛╤Б╤В╨░╨╜",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨С╤Г╤А╤П╤В╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ф╨░╨│╨╡╤Б╤В╨░╨╜",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ш╨╜╨│╤Г╤И╨╡╤В╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ъ╨░╨╗╨╝╤Л╨║╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ъ╨░╤А╨╡╨╗╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ъ╨╛╨╝╨╕",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ъ╤А╤Л╨╝",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ь╨░╤А╨╕╨╣ ╨н╨╗",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨Ь╨╛╤А╨┤╨╛╨▓╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨б╨░╤Е╨░ (╨п╨║╤Г╤В╨╕╤П)",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨б╨╡╨▓╨╡╤А╨╜╨░╤П ╨Ю╤Б╨╡╤В╨╕╤П тАФ ╨Р╨╗╨░╨╜╨╕╤П",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨в╨░╤В╨░╤А╤Б╤В╨░╨╜",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨в╤Л╨▓╨░",
+  "╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░ ╨е╨░╨║╨░╤Б╨╕╤П",
+  "╨а╨╛╤Б╤В╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨а╤П╨╖╨░╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╨░╨╝╨░╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╨░╨╜╨║╤В-╨Я╨╡╤В╨╡╤А╨▒╤Г╤А╨│",
+  "╨б╨░╤А╨░╤В╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╨░╤Е╨░╨╗╨╕╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╨▓╨╡╤А╨┤╨╗╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╨╡╨▓╨░╤Б╤В╨╛╨┐╨╛╨╗╤М",
+  "╨б╨╝╨╛╨╗╨╡╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨б╤В╨░╨▓╤А╨╛╨┐╨╛╨╗╤М╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨в╨░╨╝╨▒╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨в╨▓╨╡╤А╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨в╨╛╨╝╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨в╤Г╨╗╤М╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨в╤О╨╝╨╡╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨г╨┤╨╝╤Г╤А╤В╤Б╨║╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨г╨╗╤М╤П╨╜╨╛╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨е╨░╨▒╨░╤А╨╛╨▓╤Б╨║╨╕╨╣ ╨║╤А╨░╨╣",
+  "╨е╨░╨╜╤В╤Л-╨Ь╨░╨╜╤Б╨╕╨╣╤Б╨║╨╕╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╨╛╨║╤А╤Г╨│ тАФ ╨о╨│╤А╨░",
+  "╨з╨╡╨╗╤П╨▒╨╕╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨з╨╡╤З╨╡╨╜╤Б╨║╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨з╤Г╨▓╨░╤И╤Б╨║╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨з╤Г╨║╨╛╤В╤Б╨║╨╕╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╨╛╨║╤А╤Г╨│",
+  "╨п╨╝╨░╨╗╨╛-╨Э╨╡╨╜╨╡╤Ж╨║╨╕╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╨╛╨║╤А╤Г╨│",
+  "╨п╤А╨╛╤Б╨╗╨░╨▓╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ф╨╛╨╜╨╡╤Ж╨║╨░╤П ╨Э╨░╤А╨╛╨┤╨╜╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨Ы╤Г╨│╨░╨╜╤Б╨║╨░╤П ╨Э╨░╤А╨╛╨┤╨╜╨░╤П ╨а╨╡╤Б╨┐╤Г╨▒╨╗╨╕╨║╨░",
+  "╨е╨╡╤А╤Б╨╛╨╜╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+  "╨Ч╨░╨┐╨╛╤А╨╛╨╢╤Б╨║╨░╤П ╨╛╨▒╨╗╨░╤Б╤В╤М",
+];
+
+export function AdminSettingsPage() {
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [departmentName, setDepartmentName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await fetchSystemSettings();
+        if (data) {
+          if (data.region) {
+            const regionsFromServer = String(data.region)
+              .split(",")
+              .map((r) => r.trim())
+              .filter(Boolean);
+            setSelectedRegions(regionsFromServer);
+          }
+          setDepartmentName(data.department_name || "");
+        }
+      } catch (e: any) {
+        console.error(e);
+        setError(e.message || "╨Ю╤И╨╕╨▒╨║╨░ ╨╖╨░╨│╤А╤Г╨╖╨║╨╕ ╨╜╨░╤Б╤В╤А╨╛╨╡╨║");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const toggleRegion = (region: string) => {
+    setSelectedRegions((prev) =>
+      prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region]
+    );
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      setError(null);
+
+      const regionValue =
+        selectedRegions.length > 0 ? selectedRegions.join(", ") : null;
+
+      await updateSystemSettings({
+        region: regionValue,
+        department_name: departmentName || null,
+      });
+
+      alert("╨Э╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╤Б╨╛╤Е╤А╨░╨╜╨╡╨╜╤Л");
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || "╨Ю╤И╨╕╨▒╨║╨░ ╨┐╤А╨╕ ╤Б╨╛╤Е╤А╨░╨╜╨╡╨╜╨╕╨╕ ╨╜╨░╤Б╤В╤А╨╛╨╡╨║");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
+      <div className="max-w-5xl w-full grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        {/* ╨Ы╨╡╨▓╨░╤П ╨┐╨░╨╜╨╡╨╗╤М */}
+        <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur">
+          <div className="pointer-events-none absolute inset-0 opacity-20">
+            <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-sky-500/40 blur-3xl" />
+            <div className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-blue-400/30 blur-3xl" />
+            <div className="absolute inset-8 border border-sky-400/10 rounded-3xl [mask-image:radial-gradient(circle_at_top,_black,_transparent)]" />
+          </div>
+
+          <div className="relative space-y-6">
+            <div>
+              <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">
+                ╨Э╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╤Б╨╕╤Б╤В╨╡╨╝╤Л
+              </h1>
+              <p className="mt-2 text-sm text-slate-300/90 max-w-xl">
+                ╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ ╤Б╨╡╤А╨▓╨╕╤Б ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░ ╨╛╨▒╤Б╤В╨░╨╜╨╛╨▓╨║╨╕. ╨г╨║╨░╨╢╨╕╤В╨╡ ╨╜╨░╨╖╨▓╨░╨╜╨╕╨╡ ╨▓╨░╤И╨╡╨│╨╛ ╤Г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╤П ╨╕
+                ╨▓╤Л╨▒╨╡╤А╨╕╤В╨╡ ╨╛╨┤╨╕╨╜ ╨╕╨╗╨╕ ╨╜╨╡╤Б╨║╨╛╨╗╤М╨║╨╛ ╤А╨╡╨│╨╕╨╛╨╜╨╛╨▓, ╨╖╨░ ╨║╨╛╤В╨╛╤А╤Л╨╡ ╨╛╤В╨▓╨╡╤З╨░╨╡╤В ╤Б╨╕╤Б╤В╨╡╨╝╨░ ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░.
+              </p>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm w-fit">
+              <button
+                type="button"
+                className="px-4 py-1.5 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                ╨а╨╡╨│╨╕╨╛╨╜ ╨╕ ╤Г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╨╡
+              </button>
+              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+                ╨Я╨╛╨╗╤М╨╖╨╛╨▓╨░╤В╨╡╨╗╨╕
+              </button>
+              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+                ╨Ч╨╛╨╜╤Л ╨╕ ╤Г╤Б╤В╤А╨╛╨╣╤Б╤В╨▓╨░
+              </button>
+            </div>
+
+            {loading ? (
+              <div className="py-10 text-sm text-slate-300">╨Ч╨░╨│╤А╤Г╨╖╨║╨░ ╨╜╨░╤Б╤В╤А╨╛╨╡╨║тАж</div>
+            ) : (
+              <>
+                <div className="space-y-5">
+                  {/* ╨Э╨░╨╖╨▓╨░╨╜╨╕╨╡ ╤Г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╤П */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-100">
+                      ╨Э╨░╨╖╨▓╨░╨╜╨╕╨╡ ╤Г╨┐╤А╨░╨▓╨╗╨╡╨╜╨╕╤П
+                    </label>
+                    <input
+                      type="text"
+                      value={departmentName}
+                      onChange={(e) => setDepartmentName(e.target.value)}
+                      placeholder="╨Э╨░╨┐╤А╨╕╨╝╨╡╤А: ╨Ю╤В╨┤╨╡╨╗ ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░ ╨╕ ╤А╨╡╨░╨│╨╕╤А╨╛╨▓╨░╨╜╨╕╤П, ╨г╨Ю╨Ь╨Ч ╨│. ╨Я╨╡╤А╨▓╨╛╤Г╤А╨░╨╗╤М╤Б╨║"
+                      className="w-full rounded-xl border border-slate-600 bg-slate-900/80 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                    />
+                    <p className="text-xs text-slate-400">
+                      ╨н╤В╨╛ ╨╜╨░╨╖╨▓╨░╨╜╨╕╨╡ ╨▒╤Г╨┤╨╡╤В ╨╛╤В╨╛╨▒╤А╨░╨╢╨░╤В╤М╤Б╤П ╨▓ ╤И╨░╨┐╨║╨╡ ╤Б╨╡╤А╨▓╨╕╤Б╨░ ╨╕ ╨▓ ╤Д╨╛╤А╨╝╨╕╤А╤Г╨╡╨╝╤Л╤Е ╨┤╨╛╨║╤Г╨╝╨╡╨╜╤В╨░╤Е.
+                    </p>
+                  </div>
+
+                  {/* ╨Т╤Л╨▒╤А╨░╨╜╨╜╤Л╨╡ ╤А╨╡╨│╨╕╨╛╨╜╤Л */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-sm font-medium text-slate-100">
+                        ╨а╨╡╨│╨╕╨╛╨╜╤Л ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░
+                      </label>
+                      {selectedRegions.length > 0 && (
+                        <span className="text-xs text-slate-400">
+                          ╨Т╤Л╨▒╤А╨░╨╜╨╛: {selectedRegions.length}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80 px-3 py-2">
+                      {selectedRegions.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          ╨а╨╡╨│╨╕╨╛╨╜╤Л ╨╡╤Й╤С ╨╜╨╡ ╨▓╤Л╨▒╤А╨░╨╜╤Л. ╨Ю╤В╨╝╨╡╤В╤М╤В╨╡ ╨╛╨┤╨╕╨╜ ╨╕╨╗╨╕ ╨╜╨╡╤Б╨║╨╛╨╗╤М╨║╨╛ ╤А╨╡╨│╨╕╨╛╨╜╨╛╨▓ ╨▓ ╤Б╨┐╨╕╤Б╨║╨╡
+                          ╨╜╨╕╨╢╨╡.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedRegions.map((region) => (
+                            <span
+                              key={region}
+                              className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 border border-sky-500/40 px-3 py-1 text-xs text-sky-100"
+                            >
+                              <span>{region}</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleRegion(region)}
+                                className="ml-1 text-sky-200/80 hover:text-sky-50 text-[10px] leading-none"
+                              >
+                                тЬХ
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ╨б╨Ъ╨а╨Ю╨Ы╨С╨Ю╨Ъ╨б ╨б╨Ю ╨б╨Я╨Ш╨б╨Ъ╨Ю╨Ь ╨а╨Х╨У╨Ш╨Ю╨Э╨Ю╨Т */}
+                    <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
+                      <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
+                        {REGIONS.map((region) => {
+                          const active = selectedRegions.includes(region);
+                          return (
+                            <button
+                              key={region}
+                              type="button"
+                              onClick={() => toggleRegion(region)}
+                              className={
+                                "w-full flex items-center justify-between px-3 py-2.5 text-left text-xs sm:text-sm transition " +
+                                (active
+                                  ? "bg-sky-500/15 text-sky-100"
+                                  : "text-slate-200 hover:bg-slate-800/80")
+                              }
+                            >
+                              <span>{region}</span>
+                              {active && (
+                                <span className="ml-3 h-2.5 w-2.5 rounded-full bg-sky-400" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-400">
+                      ╨Т╤Л╨▒╤А╨░╨╜╨╜╤Л╨╡ ╤А╨╡╨│╨╕╨╛╨╜╤Л ╨╕╤Б╨┐╨╛╨╗╤М╨╖╤Г╤О╤В╤Б╤П ╨▓ ╨╛╤В╤З╤С╤В╨░╤Е, ╤Д╨╕╨╗╤М╤В╤А╨░╤Е ╨╕ ╨▓ ╤И╨░╨┐╨║╨╡ ╨┐╨░╨╜╨╡╨╗╨╕
+                      ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 pt-2">
+                  <div className="text-xs text-slate-400">
+                    ╨Ш╨╖╨╝╨╡╨╜╨╡╨╜╨╕╤П ╨╝╨╛╨╢╨╜╨╛ ╨▒╤Г╨┤╨╡╤В ╤Б╨║╨╛╤А╤А╨╡╨║╤В╨╕╤А╨╛╨▓╨░╤В╤М ╨▓ ╨╗╤О╨▒╨╛╨╣ ╨╝╨╛╨╝╨╡╨╜╤В.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-medium text-slate-900 shadow-lg shadow-sky-500/40 hover:bg-sky-400 active:scale-[0.98] transition disabled:opacity-60"
+                  >
+                    {saving ? "╨б╨╛╤Е╤А╨░╨╜╨╡╨╜╨╕╨╡тАж" : "╨б╨╛╤Е╤А╨░╨╜╨╕╤В╤М ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ╨Я╤А╨░╨▓╨░╤П ╨║╨╛╨╗╨╛╨╜╨║╨░ ╤Б ╨╛╨┐╨╕╤Б╨░╨╜╨╕╨╡╨╝ */}
+        <div className="space-y-4">
+          <div className="rounded-3xl bg-slate-900/80 border border-slate-700/60 p-5 lg:p-6 shadow-lg shadow-slate-950/60">
+            <h2 className="text-sm font-semibold text-sky-300 uppercase tracking-wide mb-3">
+              ╨Я╨░╨╜╨╡╨╗╤М ╨░╨┤╨╝╨╕╨╜╨╕╤Б╤В╤А╨░╤В╨╛╤А╨░
+            </h2>
+            <p className="text-sm text-slate-200 mb-3">
+              ╨Ч╨┤╨╡╤Б╤М ╨░╨┤╨╝╨╕╨╜╨╕╤Б╤В╤А╨░╤В╨╛╤А ╨╜╨░╤Б╤В╤А╨░╨╕╨▓╨░╨╡╤В ╨▒╨░╨╖╨╛╨▓╤Л╨╡ ╨┐╨░╤А╨░╨╝╨╡╤В╤А╤Л ╤Б╨╕╤Б╤В╨╡╨╝╤Л ╨┐╨╡╤А╨╡╨┤ ╨╜╨░╤З╨░╨╗╨╛╨╝ ╤А╨░╨▒╨╛╤В╤Л
+              ╨╛╨┐╨╡╤А╨░╤В╨╛╤А╨╛╨▓.
+            </p>
+            <ul className="space-y-2 text-sm text-slate-300">
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>╨Ю╨┐╨╡╤А╨░╤В╨╕╨▓╨╜╤Л╨╣ ╨║╨╛╨╜╤В╤А╨╛╨╗╤М ╤Б╨╛╤Б╤В╨╛╤П╨╜╨╕╤П ╨╛╨▒╤Б╤В╨░╨╜╨╛╨▓╨║╨╕.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>╨Ш╤Б╤В╨╛╤А╨╕╤П ╤Б╨╛╨▒╤Л╤В╨╕╨╣ ╨╕ ╨╢╤Г╤А╨╜╨░╨╗ ╨╕╨╜╤Ж╨╕╨┤╨╡╨╜╤В╨╛╨▓.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>╨С╤Л╤Б╤В╤А╨░╤П ╨╛╤Ж╨╡╨╜╨║╨░ ╨╛╨▒╤Б╤В╨░╨╜╨╛╨▓╨║╨╕ ╨┐╨╛ ╨║╨╗╤О╤З╨╡╨▓╤Л╨╝ ╨╝╨╡╤В╤А╨╕╨║╨░╨╝.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="rounded-3xl bg-sky-950/60 border border-sky-800/70 p-5 text-sm text-slate-100 shadow-lg shadow-sky-900/50">
+            <p className="font-medium mb-2">╨Ф╨╛╤Б╤В╤Г╨┐ ╤В╨╛╨╗╤М╨║╨╛ ╨┤╨╗╤П ╨░╨┤╨╝╨╕╨╜╨╕╤Б╤В╤А╨░╤В╨╛╤А╨░ ╤Б╨╕╤Б╤В╨╡╨╝╤Л.</p>
+            <p className="text-slate-300 text-xs leading-relaxed">
+              ╨Я╨╛╤Б╨╗╨╡ ╨┐╨╡╤А╨▓╨╕╤З╨╜╨╛╨╣ ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨╕ ╨░╨┤╨╝╨╕╨╜╨╕╤Б╤В╤А╨░╤В╨╛╤А╨░ ╨╛╤Б╤В╨░╨╗╤М╨╜╤Л╨╡ ╤Б╨╛╤В╤А╤Г╨┤╨╜╨╕╨║╨╕ ╨▒╤Г╨┤╤Г╤В ╨╖╨░╤Е╨╛╨┤╨╕╤В╤М ╤В╨╛╨╗╤М╨║╨╛
+              ╤З╨╡╤А╨╡╨╖ ╤Б╤В╨░╨╜╨┤╨░╤А╤В╨╜╤Г╤О ╤Б╤В╤А╨░╨╜╨╕╤Ж╤Г ╨░╨▓╤В╨╛╤А╨╕╨╖╨░╤Ж╨╕╨╕ ╨╕ ╤А╨░╨▒╨╛╤В╨░╤В╤М ╤Б ╨┐╨░╨╜╨╡╨╗╤М╤О ╨╝╨╛╨╜╨╕╤В╨╛╤А╨╕╨╜╨│╨░ ╨▓ ╤Б╨▓╨╛╨╕╤Е ╤А╨╛╨╗╤П╤Е.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default AdminSettingsPage;

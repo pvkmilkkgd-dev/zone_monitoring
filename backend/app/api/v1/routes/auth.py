@@ -3,22 +3,27 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.models.user import User
 from app.schemas.auth import (
-    Token,
-    UserCreate,
     BootstrapAdminCreate,
     BootstrapStatus,
+    PasswordChangeRequest,
+    Token,
+    UserCreate,
+    UserMe,
+    UserProfileUpdate,
 )
 
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
 )
-
-
-# --- Служебное: статус инициализации системы ---
 
 
 @router.get("/bootstrap-status", response_model=BootstrapStatus)
@@ -62,9 +67,6 @@ def bootstrap_admin(payload: BootstrapAdminCreate, db: Session = Depends(get_db)
     return Token(access_token=access_token, token_type="bearer")
 
 
-# --- Обычный логин ---
-
-
 @router.post("/token", response_model=Token)
 def login_oauth2(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -88,9 +90,6 @@ def login_oauth2(
     return Token(access_token=access_token, token_type="bearer")
 
 
-# --- Регистрация можно оставить, но из UI не использовать ---
-
-
 @router.post("/register", response_model=Token, deprecated=True)
 def register_user(payload: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.username == payload.username).first()
@@ -111,3 +110,51 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
 
     access_token = create_access_token(subject=str(user.id))
     return Token(access_token=access_token, token_type="bearer")
+
+
+@router.get("/me", response_model=UserMe)
+def get_me(current_user: User = Depends(get_current_user)) -> User:
+    """Вернуть текущего пользователя по access-токену."""
+    return current_user
+
+
+@router.put("/me", response_model=UserMe)
+def update_profile(
+    payload: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Обновить логин текущего пользователя."""
+    if payload.username == current_user.username:
+        return current_user
+
+    existing = db.query(User).filter(User.username == payload.username).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пользователь с таким логином уже существует",
+        )
+
+    current_user.username = payload.username
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Смена пароля текущего пользователя."""
+    if not verify_password(payload.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Текущий пароль указан неверно",
+        )
+
+    current_user.password_hash = hash_password(payload.new_password)
+    db.add(current_user)
+    db.commit()

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin_user
 from app.core.db import get_db
 from app.models.system_settings import SystemSettings
 from app.schemas.settings import SystemSettingsResponse, SystemSettingsUpdate
@@ -15,7 +15,7 @@ router = APIRouter(
 @router.get("/", response_model=SystemSettingsResponse | None)
 def get_system_settings(
     db: Session = Depends(get_db),
-    _: None = Depends(get_current_admin),
+    _: None = Depends(get_current_admin_user),
 ):
     """Получить текущие настройки системы (может быть None, если ещё не сохранены)."""
     settings = db.query(SystemSettings).order_by(SystemSettings.id.asc()).first()
@@ -26,7 +26,7 @@ def get_system_settings(
 def update_system_settings(
     payload: SystemSettingsUpdate,
     db: Session = Depends(get_db),
-    _: None = Depends(get_current_admin),
+    _: None = Depends(get_current_admin_user),
 ):
     """
     Создать или обновить настройки системы.

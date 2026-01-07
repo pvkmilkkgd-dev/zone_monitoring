@@ -1,0 +1,357 @@
+import { useEffect, useState } from "react";
+import { fetchSystemSettings, updateSystemSettings } from "../api";
+import { RussiaRegionsMapCard } from "@/components/RussiaRegionsMapSvg";
+
+const REGIONS = [
+  "¦Ð¦¬TÂ¦-¦¦TÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦Ð¦-TÃTÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÐTÀTÅ¦-¦-¦¦¦¦¦¬TÌTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÐTÁTÂTÀ¦-TÅ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ñ¦¦¦¬¦¦¦-TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÑTÀTÏ¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ò¦¬¦-¦+¦¬¦-¦¬TÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ò¦-¦¬¦¦¦-¦¦TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ò¦-¦¬¦-¦¦¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ò¦-TÀ¦-¦-¦¦¦¦TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Õ¦-TÀ¦¦¦¦TÁ¦¦¦-TÏ ¦-¦-TÂ¦-¦-¦-¦-¦-¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦×¦-¦-¦-¦¦¦¦¦-¦¬TÌTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦Ø¦-¦-¦-¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ØTÀ¦¦TÃTÂTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ú¦-¦-¦-TÀ¦+¦¬¦-¦--¦Ñ¦-¦¬¦¦¦-TÀTÁ¦¦¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦Ú¦-¦¬¦¬¦-¦¬¦-¦¦TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ú¦-¦¬TÃ¦¦TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ú¦-¦-TÇ¦-TÂTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦Ú¦-TÀ¦-TÇ¦-¦¦¦-¦--¦ç¦¦TÀ¦¦¦¦TÁTÁ¦¦¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦Ú¦¦¦-¦¦TÀ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ú¦¬TÀ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ú¦-TÁTÂTÀ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÚTÀ¦-TÁ¦-¦-¦+¦-TÀTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦ÚTÀ¦-TÁ¦-¦-TÏTÀTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦ÚTÃTÀ¦¦¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÚTÃTÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Û¦¦¦-¦¬¦-¦¦TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Û¦¬¦¬¦¦TÆ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ü¦-¦¦¦-¦+¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ü¦-TÁ¦¦¦-¦-",
+  "¦Ü¦-TÁ¦¦¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÜTÃTÀ¦-¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ý¦¦¦-¦¦TÆ¦¦¦¬¦¦ ¦-¦-TÂ¦-¦-¦-¦-¦-TË¦¦ ¦-¦¦TÀTÃ¦¦",
+  "¦Ý¦¬¦¦¦¦¦¦¦-TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ý¦-¦-¦¦¦-TÀ¦-¦+TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ý¦-¦-¦-TÁ¦¬¦-¦¬TÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Þ¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÞTÀ¦¦¦-¦-TÃTÀ¦¦TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ÞTÀ¦¬¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ß¦¦¦-¦¬¦¦¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ß¦¦TÀ¦-TÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦ßTÀ¦¬¦-¦-TÀTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦ßTÁ¦¦¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ð¦+TË¦¦¦¦TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ð¦¬TÂ¦-¦¦",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ñ¦-TÈ¦¦¦-TÀTÂ¦-TÁTÂ¦-¦-",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦ÑTÃTÀTÏTÂ¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ô¦-¦¦¦¦TÁTÂ¦-¦-",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ø¦-¦¦TÃTÈ¦¦TÂ¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ú¦-¦¬¦-TË¦¦¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ú¦-TÀ¦¦¦¬¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ú¦-¦-¦¬",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦ÚTÀTË¦-",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ü¦-TÀ¦¬¦¦ ¦í¦¬",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦Ü¦-TÀ¦+¦-¦-¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦á¦-TÅ¦- (¦ï¦¦TÃTÂ¦¬TÏ)",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦á¦¦¦-¦¦TÀ¦-¦-TÏ ¦ÞTÁ¦¦TÂ¦¬TÏ òÀÔ ¦Ð¦¬¦-¦-¦¬TÏ",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦â¦-TÂ¦-TÀTÁTÂ¦-¦-",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦âTË¦-¦-",
+  "¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦- ¦å¦-¦¦¦-TÁ¦¬TÏ",
+  "¦à¦-TÁTÂ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦àTÏ¦¬¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦á¦-¦-¦-TÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦á¦-¦-¦¦TÂ-¦ß¦¦TÂ¦¦TÀ¦-TÃTÀ¦¦",
+  "¦á¦-TÀ¦-TÂ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦á¦-TÅ¦-¦¬¦¬¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦á¦-¦¦TÀ¦+¦¬¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦á¦¦¦-¦-TÁTÂ¦-¦¬¦-¦¬TÌ",
+  "¦á¦-¦-¦¬¦¦¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦áTÂ¦-¦-TÀ¦-¦¬¦-¦¬TÌTÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦â¦-¦-¦-¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦â¦-¦¦TÀTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦â¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦âTÃ¦¬TÌTÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦âTÎ¦-¦¦¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ã¦+¦-TÃTÀTÂTÁ¦¦¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦ã¦¬TÌTÏ¦-¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦å¦-¦-¦-TÀ¦-¦-TÁ¦¦¦¬¦¦ ¦¦TÀ¦-¦¦",
+  "¦å¦-¦-TÂTË-¦Ü¦-¦-TÁ¦¬¦¦TÁ¦¦¦¬¦¦ ¦-¦-TÂ¦-¦-¦-¦-¦-TË¦¦ ¦-¦¦TÀTÃ¦¦ òÀÔ ¦î¦¦TÀ¦-",
+  "¦ç¦¦¦¬TÏ¦-¦¬¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦ç¦¦TÇ¦¦¦-TÁ¦¦¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦çTÃ¦-¦-TÈTÁ¦¦¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦çTÃ¦¦¦-TÂTÁ¦¦¦¬¦¦ ¦-¦-TÂ¦-¦-¦-¦-¦-TË¦¦ ¦-¦¦TÀTÃ¦¦",
+  "¦ï¦-¦-¦¬¦--¦Ý¦¦¦-¦¦TÆ¦¦¦¬¦¦ ¦-¦-TÂ¦-¦-¦-¦-¦-TË¦¦ ¦-¦¦TÀTÃ¦¦",
+  "¦ïTÀ¦-TÁ¦¬¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦Ô¦-¦-¦¦TÆ¦¦¦-TÏ ¦Ý¦-TÀ¦-¦+¦-¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦ÛTÃ¦¦¦-¦-TÁ¦¦¦-TÏ ¦Ý¦-TÀ¦-¦+¦-¦-TÏ ¦à¦¦TÁ¦¬TÃ¦-¦¬¦¬¦¦¦-",
+  "¦å¦¦TÀTÁ¦-¦-TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+  "¦×¦-¦¬¦-TÀ¦-¦¦TÁ¦¦¦-TÏ ¦-¦-¦¬¦-TÁTÂTÌ",
+];
+
+export function AdminSettingsPage() {
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [departmentName, setDepartmentName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const n = selectedRegions.length;
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await fetchSystemSettings();
+        if (data) {
+          if (data.region) {
+            const regionsFromServer = String(data.region)
+              .split(",")
+              .map((r) => r.trim())
+              .filter(Boolean);
+            setSelectedRegions(regionsFromServer);
+          }
+          setDepartmentName(data.department_name || "");
+        }
+      } catch (e: any) {
+        console.error(e);
+        setError(e.message || "¦ÞTÈ¦¬¦-¦¦¦- ¦¬¦-¦¦TÀTÃ¦¬¦¦¦¬ ¦-¦-TÁTÂTÀ¦-¦¦¦¦");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, []);
+
+  const toggleRegion = (region: string) => {
+    setSelectedRegions((prev) =>
+      prev.includes(region) ? prev.filter((r) => r !== region) : [...prev, region]
+    );
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      setError(null);
+
+      const regionValue =
+        selectedRegions.length > 0 ? selectedRegions.join(", ") : null;
+
+      await updateSystemSettings({
+        region: regionValue,
+        department_name: departmentName || null,
+      });
+
+      alert("¦Ý¦-TÁTÂTÀ¦-¦¦¦¦¦¬ TÁ¦-TÅTÀ¦-¦-¦¦¦-TË");
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message || "¦ÞTÈ¦¬¦-¦¦¦- ¦¬TÀ¦¬ TÁ¦-TÅTÀ¦-¦-¦¦¦-¦¬¦¬ ¦-¦-TÁTÂTÀ¦-¦¦¦¦");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
+      <div className="max-w-5xl w-full grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        {/* ¦Û¦¦¦-¦-TÏ ¦¬¦-¦-¦¦¦¬TÌ */}
+        <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur">
+          <div className="pointer-events-none absolute inset-0 opacity-20">
+            <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-sky-500/40 blur-3xl" />
+            <div className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-blue-400/30 blur-3xl" />
+            <div className="absolute inset-8 border border-sky-400/10 rounded-3xl [mask-image:radial-gradient(circle_at_top,_black,_transparent)]" />
+          </div>
+
+          <div className="relative space-y-6">
+            <div>
+              <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">
+                ¦Ý¦-TÁTÂTÀ¦-¦¦¦¦¦¬ TÁ¦¬TÁTÂ¦¦¦-TË
+              </h1>
+              <p className="mt-2 text-sm text-slate-300/90 max-w-xl">
+                ¦Ò¦-TÃTÂTÀ¦¦¦-¦-¦¬¦¦ TÁ¦¦TÀ¦-¦¬TÁ ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦- ¦-¦-TÁTÂ¦-¦-¦-¦-¦¦¦¬. ¦ã¦¦¦-¦¦¦¬TÂ¦¦ ¦-¦-¦¬¦-¦-¦-¦¬¦¦ ¦-¦-TÈ¦¦¦¦¦- TÃ¦¬TÀ¦-¦-¦¬¦¦¦-¦¬TÏ ¦¬
+                ¦-TË¦-¦¦TÀ¦¬TÂ¦¦ ¦-¦+¦¬¦- ¦¬¦¬¦¬ ¦-¦¦TÁ¦¦¦-¦¬TÌ¦¦¦- TÀ¦¦¦¦¦¬¦-¦-¦-¦-, ¦¬¦- ¦¦¦-TÂ¦-TÀTË¦¦ ¦-TÂ¦-¦¦TÇ¦-¦¦TÂ TÁ¦¬TÁTÂ¦¦¦-¦- ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦-.
+              </p>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm w-fit">
+              <button
+                type="button"
+                className="px-4 py-1.5 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                ¦à¦¦¦¦¦¬¦-¦- ¦¬ TÃ¦¬TÀ¦-¦-¦¬¦¦¦-¦¬¦¦
+              </button>
+              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+                ¦ß¦-¦¬TÌ¦¬¦-¦-¦-TÂ¦¦¦¬¦¬
+              </button>
+              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+                ¦×¦-¦-TË ¦¬ TÃTÁTÂTÀ¦-¦¦TÁTÂ¦-¦-
+              </button>
+            </div>
+
+            {loading ? (
+              <div className="py-10 text-sm text-slate-300">¦×¦-¦¦TÀTÃ¦¬¦¦¦- ¦-¦-TÁTÂTÀ¦-¦¦¦¦òÀæ</div>
+            ) : (
+              <>
+                <div className="space-y-5">
+                  {/* ¦Ý¦-¦¬¦-¦-¦-¦¬¦¦ TÃ¦¬TÀ¦-¦-¦¬¦¦¦-¦¬TÏ */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-100">
+                      ¦Ý¦-¦¬¦-¦-¦-¦¬¦¦ TÃ¦¬TÀ¦-¦-¦¬¦¦¦-¦¬TÏ
+                    </label>
+                    <input
+                      type="text"
+                      value={departmentName}
+                      onChange={(e) => setDepartmentName(e.target.value)}
+                      placeholder="¦Ý¦-¦¬TÀ¦¬¦-¦¦TÀ: ¦ÞTÂ¦+¦¦¦¬ ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦- ¦¬ TÀ¦¦¦-¦¦¦¬TÀ¦-¦-¦-¦-¦¬TÏ, ¦ã¦Þ¦Ü¦× ¦¦. ¦ß¦¦TÀ¦-¦-TÃTÀ¦-¦¬TÌTÁ¦¦"
+                      className="w-full rounded-xl border border-slate-600 bg-slate-900/80 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+                    />
+                    <p className="text-xs text-slate-400">
+                      ¦íTÂ¦- ¦-¦-¦¬¦-¦-¦-¦¬¦¦ ¦-TÃ¦+¦¦TÂ ¦-TÂ¦-¦-TÀ¦-¦¦¦-TÂTÌTÁTÏ ¦- TÈ¦-¦¬¦¦¦¦ TÁ¦¦TÀ¦-¦¬TÁ¦- ¦¬ ¦- TÄ¦-TÀ¦-¦¬TÀTÃ¦¦¦-TËTÅ ¦+¦-¦¦TÃ¦-¦¦¦-TÂ¦-TÅ.
+                    </p>
+                  </div>
+
+                  {/* ¦ÒTË¦-TÀ¦-¦-¦-TË¦¦ TÀ¦¦¦¦¦¬¦-¦-TË */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="block text-sm font-medium text-slate-100">
+                        ¦à¦¦¦¦¦¬¦-¦-TË ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦-
+                      </label>
+                      {selectedRegions.length > 0 && (
+                        <span className="text-xs text-slate-400">
+                          ¦ÒTË¦-TÀ¦-¦-¦-: {selectedRegions.length}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80 px-3 py-2">
+                      {selectedRegions.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          ¦à¦¦¦¦¦¬¦-¦-TË ¦¦TÉTÑ ¦-¦¦ ¦-TË¦-TÀ¦-¦-TË. ¦ÞTÂ¦-¦¦TÂTÌTÂ¦¦ ¦-¦+¦¬¦- ¦¬¦¬¦¬ ¦-¦¦TÁ¦¦¦-¦¬TÌ¦¦¦- TÀ¦¦¦¦¦¬¦-¦-¦-¦- ¦- TÁ¦¬¦¬TÁ¦¦¦¦
+                          ¦-¦¬¦¦¦¦.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {selectedRegions.map((region) => (
+                            <span
+                              key={region}
+                              className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 border border-sky-500/40 px-3 py-1 text-xs text-sky-100"
+                            >
+                              <span>{region}</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleRegion(region)}
+                                className="ml-1 text-sky-200/80 hover:text-sky-50 text-[10px] leading-none"
+                              >
+                                òÜÕ
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ¦á¦Ú¦à¦Þ¦Û¦Ñ¦Þ¦Ú¦á ¦á¦Þ ¦á¦ß¦Ø¦á¦Ú¦Þ¦Ü ¦à¦Õ¦Ó¦Ø¦Þ¦Ý¦Þ¦Ò */}
+                    <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
+                      <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
+                        {REGIONS.map((region) => {
+                          const active = selectedRegions.includes(region);
+                          return (
+                            <button
+                              key={region}
+                              type="button"
+                              onClick={() => toggleRegion(region)}
+                              className={
+                                "w-full flex items-center justify-between px-3 py-2.5 text-left text-xs sm:text-sm transition " +
+                                (active
+                                  ? "bg-sky-500/15 text-sky-100"
+                                  : "text-slate-200 hover:bg-slate-800/80")
+                              }
+                            >
+                              <span>{region}</span>
+                              {active && (
+                                <span className="ml-3 h-2.5 w-2.5 rounded-full bg-sky-400" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-400">
+                      ¦ÒTË¦-TÀ¦-¦-¦-TË¦¦ TÀ¦¦¦¦¦¬¦-¦-TË ¦¬TÁ¦¬¦-¦¬TÌ¦¬TÃTÎTÂTÁTÏ ¦- ¦-TÂTÇTÑTÂ¦-TÅ, TÄ¦¬¦¬TÌTÂTÀ¦-TÅ ¦¬ ¦- TÈ¦-¦¬¦¦¦¦ ¦¬¦-¦-¦¦¦¬¦¬
+                      ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦-.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 pt-2">
+                  <div className="text-xs text-slate-400">
+                    ¦Ø¦¬¦-¦¦¦-¦¦¦-¦¬TÏ ¦-¦-¦¦¦-¦- ¦-TÃ¦+¦¦TÂ TÁ¦¦¦-TÀTÀ¦¦¦¦TÂ¦¬TÀ¦-¦-¦-TÂTÌ ¦- ¦¬TÎ¦-¦-¦¦ ¦-¦-¦-¦¦¦-TÂ.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-medium text-slate-900 shadow-lg shadow-sky-500/40 hover:bg-sky-400 active:scale-[0.98] transition disabled:opacity-60"
+                  >
+                    {saving ? "¦á¦-TÅTÀ¦-¦-¦¦¦-¦¬¦¦òÀæ" : "¦á¦-TÅTÀ¦-¦-¦¬TÂTÌ ¦-¦-TÁTÂTÀ¦-¦¦¦¦¦¬"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ¦ßTÀ¦-¦-¦-TÏ ¦¦¦-¦¬¦-¦-¦¦¦- TÁ ¦-¦¬¦¬TÁ¦-¦-¦¬¦¦¦- */}
+        <div className="space-y-4">
+          <div className="rounded-3xl bg-slate-900/80 border border-slate-700/60 p-5 lg:p-6 shadow-lg shadow-slate-950/60">
+            <h2 className="text-sm font-semibold text-sky-300 uppercase tracking-wide mb-3">
+              ¦ß¦-¦-¦¦¦¬TÌ ¦-¦+¦-¦¬¦-¦¬TÁTÂTÀ¦-TÂ¦-TÀ¦-
+            </h2>
+            <p className="text-sm text-slate-200 mb-3">
+              ¦×¦+¦¦TÁTÌ ¦-¦+¦-¦¬¦-¦¬TÁTÂTÀ¦-TÂ¦-TÀ ¦-¦-TÁTÂTÀ¦-¦¬¦-¦-¦¦TÂ ¦-¦-¦¬¦-¦-TË¦¦ ¦¬¦-TÀ¦-¦-¦¦TÂTÀTË TÁ¦¬TÁTÂ¦¦¦-TË ¦¬¦¦TÀ¦¦¦+ ¦-¦-TÇ¦-¦¬¦-¦- TÀ¦-¦-¦-TÂTË
+              ¦-¦¬¦¦TÀ¦-TÂ¦-TÀ¦-¦-.
+            </p>
+            <ul className="space-y-2 text-sm text-slate-300">
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>¦Þ¦¬¦¦TÀ¦-TÂ¦¬¦-¦-TË¦¦ ¦¦¦-¦-TÂTÀ¦-¦¬TÌ TÁ¦-TÁTÂ¦-TÏ¦-¦¬TÏ ¦-¦-TÁTÂ¦-¦-¦-¦-¦¦¦¬.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>¦ØTÁTÂ¦-TÀ¦¬TÏ TÁ¦-¦-TËTÂ¦¬¦¦ ¦¬ ¦¦TÃTÀ¦-¦-¦¬ ¦¬¦-TÆ¦¬¦+¦¦¦-TÂ¦-¦-.</span>
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+                <span>¦ÑTËTÁTÂTÀ¦-TÏ ¦-TÆ¦¦¦-¦¦¦- ¦-¦-TÁTÂ¦-¦-¦-¦-¦¦¦¬ ¦¬¦- ¦¦¦¬TÎTÇ¦¦¦-TË¦- ¦-¦¦TÂTÀ¦¬¦¦¦-¦-.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="rounded-3xl bg-sky-950/60 border border-sky-800/70 p-5 text-sm text-slate-100 shadow-lg shadow-sky-900/50">
+            <p className="font-medium mb-2">¦Ô¦-TÁTÂTÃ¦¬ TÂ¦-¦¬TÌ¦¦¦- ¦+¦¬TÏ ¦-¦+¦-¦¬¦-¦¬TÁTÂTÀ¦-TÂ¦-TÀ¦- TÁ¦¬TÁTÂ¦¦¦-TË.</p>
+            <p className="text-slate-300 text-xs leading-relaxed">
+              ¦ß¦-TÁ¦¬¦¦ ¦¬¦¦TÀ¦-¦¬TÇ¦-¦-¦¦ ¦-¦-TÁTÂTÀ¦-¦¦¦¦¦¬ ¦-¦+¦-¦¬¦-¦¬TÁTÂTÀ¦-TÂ¦-TÀ¦- ¦-TÁTÂ¦-¦¬TÌ¦-TË¦¦ TÁ¦-TÂTÀTÃ¦+¦-¦¬¦¦¦¬ ¦-TÃ¦+TÃTÂ ¦¬¦-TÅ¦-¦+¦¬TÂTÌ TÂ¦-¦¬TÌ¦¦¦-
+              TÇ¦¦TÀ¦¦¦¬ TÁTÂ¦-¦-¦+¦-TÀTÂ¦-TÃTÎ TÁTÂTÀ¦-¦-¦¬TÆTÃ ¦-¦-TÂ¦-TÀ¦¬¦¬¦-TÆ¦¬¦¬ ¦¬ TÀ¦-¦-¦-TÂ¦-TÂTÌ TÁ ¦¬¦-¦-¦¦¦¬TÌTÎ ¦-¦-¦-¦¬TÂ¦-TÀ¦¬¦-¦¦¦- ¦- TÁ¦-¦-¦¬TÅ TÀ¦-¦¬TÏTÅ.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+

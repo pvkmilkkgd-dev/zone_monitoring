@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Центр: Северный район",
+        "district_id": "66-001",
+        "is_center": true
+      },
+      "geometry": { "type": "Point", "coordinates": [60.1, 57.2] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Центр: Центральный район",
+        "district_id": "66-002",
+        "is_center": true
+      },
+      "geometry": { "type": "Point", "coordinates": [60.1, 57.0] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Центр: Южный район",
+        "district_id": "66-003",
+        "is_center": true
+      },
+      "geometry": { "type": "Point", "coordinates": [60.1, 56.8] }
+    }
+  ]
+}

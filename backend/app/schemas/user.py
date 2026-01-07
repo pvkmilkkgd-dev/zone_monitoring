@@ -1,31 +1,45 @@
 from datetime import datetime
+from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, constr
-
-
-class UserCreate(BaseModel):
-    username: constr(min_length=3, max_length=50)
-    password: constr(min_length=6, max_length=128)
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class UserRead(BaseModel):
-    id: int
+class UserBase(BaseModel):
     username: str
-    role: str
+    full_name: Optional[str] = None
+    role: str = "operator"
+    is_active: bool = True
+
+
+class UserRead(UserBase):
+    id: int
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserOut(BaseModel):
+class UserPublic(UserBase):
     id: int
-    username: str
-    role: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    role: str | None = None
+class UserCreateByAdmin(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    role: str = "operator"
+
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
+class UserPasswordReset(BaseModel):
+    new_password: str
+
+
+class UserSelfUpdate(BaseModel):
+    username: Optional[str] = Field(None, description="Ваш новый логин")
+    current_password: str = Field(..., description="Текущий пароль")
+    new_password: Optional[str] = Field(None, description="Новый пароль (если менять)")

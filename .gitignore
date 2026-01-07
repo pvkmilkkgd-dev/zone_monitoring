@@ -28,3 +28,13 @@ frontend/dist/
 .env
 .env.*
 !.env.example
+
+# Vite cache
+frontend/.vite/
+frontend/.cache/
+
+# Node (если вдруг node_modules окажется не только в frontend)
+node_modules/
+
+# Build artifacts (если где-то появится dist вне frontend)
+dist/

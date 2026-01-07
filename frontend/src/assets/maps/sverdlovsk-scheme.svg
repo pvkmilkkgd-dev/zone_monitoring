@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" role="img" aria-label="Схема Свердловской области">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#0b1224"/>
+    </linearGradient>
+    <style>
+      .frame { fill: none; stroke: #1f2937; stroke-width: 2; }
+      .zone { stroke: #38bdf8; stroke-width: 2; fill-opacity: 0.08; }
+      .label { fill: #e2e8f0; font-size: 12px; font-family: "Inter", "Segoe UI", Arial, sans-serif; }
+      .small { fill: #cbd5e1; font-size: 11px; font-family: "Inter", "Segoe UI", Arial, sans-serif; }
+      .badge { fill: #0ea5e9; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="640" height="420" rx="28" fill="url(#bg)"/>
+  <rect x="14" y="14" width="612" height="392" rx="24" class="frame" opacity="0.5"/>
+
+  <!-- север -->
+  <rect x="80" y="40" width="200" height="110" rx="18" class="zone" fill="#0ea5e9"/>
+  <text x="90" y="70" class="label">Север</text>
+  <text x="90" y="92" class="small">Серовский ГО</text>
+  <text x="90" y="112" class="small">центр: Серов</text>
+
+  <!-- запад -->
+  <rect x="60" y="170" width="170" height="120" rx="16" class="zone" fill="#0ea5e9"/>
+  <text x="70" y="200" class="label">Запад</text>
+  <text x="70" y="222" class="small">Первоуральский ГО</text>
+  <text x="70" y="242" class="small">центр: Первоуральск</text>
+
+  <!-- центр -->
+  <rect x="250" y="150" width="190" height="140" rx="18" class="zone" fill="#22c55e"/>
+  <text x="265" y="178" class="label">Центр</text>
+  <text x="265" y="200" class="small">Екатеринбург</text>
+  <text x="265" y="220" class="small">центр: Екатеринбург</text>
+
+  <!-- восток -->
+  <rect x="450" y="170" width="140" height="120" rx="16" class="zone" fill="#0ea5e9"/>
+  <text x="462" y="200" class="label">Восток</text>
+  <text x="462" y="222" class="small">Ревдинский ГО</text>
+  <text x="462" y="242" class="small">центр: Ревда</text>
+
+  <!-- юг -->
+  <rect x="270" y="300" width="190" height="90" rx="16" class="zone" fill="#0ea5e9"/>
+  <text x="285" y="330" class="label">Юг</text>
+  <text x="285" y="352" class="small">Каменск-Уральский</text>
+  <text x="285" y="372" class="small">центр: Каменск-Уральский</text>
+
+  <!-- северо-восток -->
+  <rect x="420" y="60" width="150" height="100" rx="16" class="zone" fill="#0ea5e9"/>
+  <text x="432" y="90" class="label">Северо-восток</text>
+  <text x="432" y="112" class="small">Нижний Тагил</text>
+  <text x="432" y="132" class="small">центр: Нижний Тагил</text>
+
+  <!-- легенда -->
+  <g transform="translate(520 340)">
+    <rect x="0" y="0" width="96" height="56" rx="12" fill="#0b1224" stroke="#1f2937"/>
+    <circle cx="16" cy="16" r="6" class="badge" />
+    <text x="30" y="19" class="small">район</text>
+    <rect x="10" y="28" width="20" height="12" rx="4" class="zone" fill="#22c55e" stroke-width="0"/>
+    <text x="34" y="38" class="small">центр области</text>
+  </g>
+</svg>
