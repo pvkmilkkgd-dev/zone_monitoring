@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { geoMercator, geoPath } from "d3-geo";
 
-const DEBUG_MAP = true;
+const DEBUG_MAP = false;
 
 type GeoFeature = {
   type: "Feature";
@@ -180,21 +180,40 @@ export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 
     if (svgWidth < 50 || svgHeight < 50) return { featuresToDraw: [] as GeoFeature[], projection: null as any };
 
     const all = geo.features || [];
-    const featuresToUse = all; // рисуем всю Россию, подсветка только по selected
+
+    // На всякий случай нормализуем даталайн; если не нужно — функция вернёт как было.
+    const fixedFc: GeoFC = unwrapDatelineIfNeeded({ type: "FeatureCollection", features: all });
+    const fixedFeatures = fixedFc.features || [];
 
     const pad = Math.min(padding, Math.floor(Math.min(svgWidth, svgHeight) / 10));
-    const right = Math.max(pad + 1, svgWidth - pad);
-    const bottom = Math.max(pad + 1, svgHeight - pad);
-    const fitFc: GeoFC = { type: "FeatureCollection", features: all };
-    const proj = geoMercator().rotate([-105, 0]).fitExtent(
-      [
-        [pad, pad],
-        [right, bottom],
-      ],
-      fitFc as any,
-    );
+    const innerW = Math.max(1, svgWidth - pad * 2);
+    const innerH = Math.max(1, svgHeight - pad * 2);
 
-    return { featuresToDraw: featuresToUse, projection: proj };
+    // Базовая проекция (contain в inner)
+    const proj = geoMercator().rotate([-105, 0]).fitSize([innerW, innerH], fixedFc as any);
+    const [t0x, t0y] = proj.translate();
+    proj.translate([t0x + pad, t0y + pad]);
+
+    // Доп. cover: увеличиваем масштаб и центрируем по bounds
+    const path0 = geoPath(proj);
+    const b0 = path0.bounds(fixedFc as any);
+    const bw0 = Math.max(1, b0[1][0] - b0[0][0]);
+    const bh0 = Math.max(1, b0[1][1] - b0[0][1]);
+    const k = Math.max(innerW / bw0, innerH / bh0);
+    if (k > 1.0001) {
+      proj.scale(proj.scale() * k);
+    }
+
+    const path1 = geoPath(proj);
+    const b1 = path1.bounds(fixedFc as any);
+    const cx = (b1[0][0] + b1[1][0]) / 2;
+    const cy = (b1[0][1] + b1[1][1]) / 2;
+    const targetCx = svgWidth / 2;
+    const targetCy = svgHeight / 2;
+    const [t1x, t1y] = proj.translate();
+    proj.translate([t1x + (targetCx - cx), t1y + (targetCy - cy)]);
+
+    return { featuresToDraw: fixedFeatures, projection: proj };
   }, [geo, svgWidth, svgHeight, padding]);
 
   const pathGen = useMemo(() => (projection ? geoPath(projection) : null), [projection]);
@@ -230,7 +249,7 @@ export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 
         className="w-full h-full block"
         style={{ display: "block" }}
       >
-        <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="rgba(255,255,255,0.96)" stroke="none" />
+        {/* фон оставляем прозрачным */}
         {pathGen && featuresToDraw.length
           ? featuresToDraw.map((f, idx) => {
               const name = getFeatureName(f);
@@ -243,9 +262,9 @@ export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 
                   fill={
                     selectedGeoRegions.length ? (isSelected ? "rgba(14,165,233,0.25)" : "transparent") : "transparent"
                   }
-                  stroke="rgba(15,23,42,0.35)"
+                  stroke="rgba(226,232,240,0.85)"
                   strokeWidth={strokeWidth}
-                  className="cursor-pointer transition-colors hover:fill-[rgba(14,165,233,0.12)]"
+                  className="cursor-pointer transition-colors hover:fill-[rgba(56,189,248,0.10)]"
                   fillRule="evenodd"
                   clipRule="evenodd"
                   onClick={() => {
