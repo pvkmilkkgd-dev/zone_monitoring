@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchSystemSettings, updateSystemSettings } from "../api";
+import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
 
 const REGIONS = [
   "Алтайский край",
@@ -344,6 +345,35 @@ export function AdminSettingsPage() {
               После первичной настройки администратора остальные сотрудники будут заходить только
               через стандартную страницу авторизации и работать с панелью мониторинга в своих ролях.
             </p>
+          </div>
+
+          <div className="rounded-3xl bg-slate-900/80 border border-slate-700/60 p-5 lg:p-6 shadow-lg shadow-slate-950/60">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-sky-300 uppercase tracking-wide">
+                  Карта регионов РФ
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Клик по региону добавляет/убирает его в выбранные.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-sky-700/60 bg-sky-950/60 px-3 py-1 text-[11px] text-sky-200">
+                РОССИЯ
+              </span>
+            </div>
+
+            <div className="rounded-2xl bg-slate-950/70 overflow-hidden">
+              <div className="bg-slate-900/80 px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+                Выбрано: {selectedRegions.length}
+              </div>
+              <div className="w-full h-[360px] min-w-0">
+                <RussiaRegionsMapSvg
+                  selectedRegions={selectedRegions}
+                  padding={12}
+                  onRegionClick={(regionName) => toggleRegion(regionName)}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

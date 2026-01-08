@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { geoMercator, geoPath } from "d3-geo";
 
+const DEBUG_MAP = true;
+
 type GeoFeature = {
   type: "Feature";
   properties?: Record<string, any>;
@@ -11,6 +13,19 @@ type GeoFC = {
   type: "FeatureCollection";
   features: GeoFeature[];
 };
+
+const UI_TO_GEO: Record<string, string> = {
+  "Кабардино-Балкарская Республика": "Кабардино-Балкарская республика",
+  "Карачаево-Черкесская Республика": "Карачаево-Черкесская республика",
+  "Удмуртская Республика": "Удмуртская республика",
+  "Чеченская Республика": "Чеченская республика",
+  "Ханты-Мансийский автономный округ — Югра": "Ханты-Мансийский автономный округ - Югра",
+  "Республика Северная Осетия — Алания": "Северная Осетия - Алания",
+};
+
+const GEO_TO_UI: Record<string, string> = Object.fromEntries(
+  Object.entries(UI_TO_GEO).map(([ui, geo]) => [geo, ui]),
+);
 
 function unwrapDatelineIfNeeded(fc: GeoFC): GeoFC {
   let minLon = Infinity;
@@ -74,17 +89,25 @@ function getFeatureName(f: GeoFeature): string {
 
 type MapProps = {
   selectedRegions: string[];
-  width: number;
-  height: number;
+  width?: number;
+  height?: number;
   padding?: number;
+  onRegionClick?: (name: string) => void;
 };
 
-const loadingText = "\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u043a\u0430\u0440\u0442\u044b\u2026"; // Загрузка карты…
-const errorPrefix = "\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043a\u0430\u0440\u0442\u044b: "; // Ошибка загрузки карты:
+const loadingText = "Загрузка карты…";
+const errorPrefix = "Ошибка загрузки карты: ";
 
-export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 12 }: MapProps) {
+export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 12, onRegionClick }: MapProps) {
   const [geo, setGeo] = useState<GeoFC | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+
+  const selectedGeoRegions = useMemo(
+    () => (selectedRegions ?? []).map((s) => UI_TO_GEO[s.trim()] ?? s.trim()),
+    [selectedRegions],
+  );
 
   const backend = (import.meta.env.VITE_BACKEND_URL as string | undefined) || "";
   const url = backend ? `${backend}/maps/ru/regions.geojson` : `/maps/ru/regions.geojson`;
@@ -107,7 +130,22 @@ export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 
         }
 
         const raw = (await resp.json()) as GeoFC;
-        const data = unwrapDatelineIfNeeded(raw);
+        const data = raw;
+
+        const names = (data.features ?? [])
+          .map((f) =>
+            String(
+              (f.properties as any)?.name ??
+                (f.properties as any)?.NAME ??
+                (f.properties as any)?.region ??
+                "",
+            ).trim(),
+          )
+          .filter(Boolean);
+        const uniq = Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+        const missing = selectedGeoRegions.filter((r) => !uniq.includes(r));
+        console.log("[MAP] geojson regions:", uniq);
+        console.log("[MAP] selected missing in geojson:", missing);
 
         if (!cancelled) setGeo(data);
       } catch (e: any) {
@@ -119,91 +157,133 @@ export function RussiaRegionsMapSvg({ selectedRegions, width, height, padding = 
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, selectedGeoRegions]);
 
-  const svgWidth = Math.max(1, Math.floor(width));
-  const svgHeight = Math.max(1, Math.floor(height));
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width: w, height: h } = entry.contentRect;
+      setSize({ w: Math.max(0, w), h: Math.max(0, h) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const measuredW = size.w || (width ?? 0);
+  const measuredH = size.h || (height ?? 0);
+  const svgWidth = Math.max(1, Math.floor(measuredW));
+  const svgHeight = Math.max(1, Math.floor(measuredH));
 
   const { featuresToDraw, projection } = useMemo(() => {
     if (!geo) return { featuresToDraw: [] as GeoFeature[], projection: null as any };
+    if (svgWidth < 50 || svgHeight < 50) return { featuresToDraw: [] as GeoFeature[], projection: null as any };
 
     const all = geo.features || [];
-    const chosen = new Set(selectedRegions.map((s) => s.trim()));
-    const filtered = selectedRegions.length ? all.filter((f) => chosen.has(getFeatureName(f))) : all;
-    const featuresToUse = filtered.length ? filtered : all;
+    const featuresToUse = all; // рисуем всю Россию, подсветка только по selected
 
-    const pad = selectedRegions.length ? 6 : padding;
-    const fitFc: GeoFC = { type: "FeatureCollection", features: featuresToUse };
-    const x1 = Math.max(pad + 1, svgWidth - pad);
-    const y1 = Math.max(pad + 1, svgHeight - pad);
-    const proj = geoMercator()
-      .rotate([-105, 0])
-      .fitExtent(
-        [
-          [pad, pad],
-          [x1, y1],
-        ],
-        fitFc as any,
-      );
+    const pad = Math.min(padding, Math.floor(Math.min(svgWidth, svgHeight) / 10));
+    const right = Math.max(pad + 1, svgWidth - pad);
+    const bottom = Math.max(pad + 1, svgHeight - pad);
+    const fitFc: GeoFC = { type: "FeatureCollection", features: all };
+    const proj = geoMercator().rotate([-105, 0]).fitExtent(
+      [
+        [pad, pad],
+        [right, bottom],
+      ],
+      fitFc as any,
+    );
 
     return { featuresToDraw: featuresToUse, projection: proj };
-  }, [geo, selectedRegions, svgWidth, svgHeight, padding]);
+  }, [geo, svgWidth, svgHeight, padding]);
 
-  const pathGen = useMemo(() => {
-    if (!projection) return null;
-    return geoPath(projection);
-  }, [projection]);
+  const pathGen = useMemo(() => (projection ? geoPath(projection) : null), [projection]);
 
-  if (loadError) {
-    return (
-      <div className="h-full w-full flex items-center justify-center px-4 text-xs text-slate-600">
-        {errorPrefix}
-        {loadError}
-      </div>
-    );
+  const selectedSet = new Set(selectedGeoRegions);
+  const strokeWidth = selectedGeoRegions.length ? 1.5 : 0.8;
+
+  if (DEBUG_MAP && pathGen) {
+    try {
+      const fcBounds = pathGen.bounds({ type: "FeatureCollection", features: geo?.features || [] } as any);
+      let selBounds: [number, number][] | null = null;
+      const firstSel = (geo.features || []).find((f) => selectedSet.has(getFeatureName(f)));
+      if (firstSel) {
+        selBounds = pathGen.bounds(firstSel as any);
+      }
+      console.log("[MAP DEBUG] svg size:", { svgWidth, svgHeight });
+      console.log("[MAP DEBUG] bounds(all/fit):", fcBounds);
+      if (selBounds) console.log("[MAP DEBUG] bounds(selected):", selBounds);
+    } catch (e) {
+      console.warn("[MAP DEBUG] bounds error", e);
+    }
   }
 
-  if (!geo || !pathGen) {
-    return (
-      <div className="h-full w-full flex items-center justify-center text-xs text-slate-500">
-        {loadingText}
-      </div>
-    );
-  }
-
-  const selectedSet = new Set(selectedRegions.map((s) => s.trim()));
-  const strokeWidth = selectedRegions.length ? 1.5 : 0.8;
+  const showLoading = !geo || !pathGen || svgWidth < 50 || svgHeight < 50;
 
   return (
-    <svg
-      viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-      preserveAspectRatio="xMidYMid meet"
-      className="w-full h-full block"
-    >
-      <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="white" />
+    <div ref={containerRef} className="w-full h-full min-w-0 relative">
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="w-full h-full block"
+        style={{ display: "block" }}
+      >
+        <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="rgba(255,255,255,0.96)" stroke="none" />
+        {pathGen && featuresToDraw.length
+          ? featuresToDraw.map((f, idx) => {
+              const name = getFeatureName(f);
+              const isSelected = selectedSet.has(name);
 
-      {featuresToDraw.map((f, idx) => {
-        const name = getFeatureName(f);
-        const isSelected = selectedSet.has(name);
+              return (
+                <path
+                  key={`${name}-${idx}`}
+                  d={pathGen ? pathGen(f as any) || "" : ""}
+                  fill={
+                    selectedGeoRegions.length ? (isSelected ? "rgba(14,165,233,0.25)" : "transparent") : "transparent"
+                  }
+                  stroke="rgba(15,23,42,0.35)"
+                  strokeWidth={strokeWidth}
+                  className="cursor-pointer transition-colors hover:fill-[rgba(14,165,233,0.12)]"
+                  fillRule="evenodd"
+                  clipRule="evenodd"
+                  onClick={() => {
+                    if (!name) return;
+                    const uiName = GEO_TO_UI[name] ?? name;
+                    onRegionClick?.(uiName);
+                  }}
+                >
+                  <title>{name || "Без названия"}</title>
+                </path>
+              );
+            })
+          : null}
+      </svg>
 
-        return (
-          <path
-            key={`${name}-${idx}`}
-            d={pathGen(f as any) || ""}
-            fill={selectedRegions.length ? (isSelected ? "rgba(14,165,233,0.22)" : "transparent") : "transparent"}
-            stroke="rgba(100,116,139,0.55)"
-            strokeWidth={strokeWidth}
-          >
-            <title>{name || "Без названия"}</title>
-          </path>
-        );
-      })}
-    </svg>
+      {loadError && (
+        <div className="absolute inset-0 flex items-center justify-center px-4 text-xs text-slate-600 bg-transparent">
+          {errorPrefix}
+          {loadError}
+        </div>
+      )}
+
+      {!loadError && showLoading && (
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-500 bg-transparent">
+          {loadingText}
+        </div>
+      )}
+    </div>
   );
 }
 
-export function RussiaRegionsMapCard(props: { selectedRegions: string[]; padding?: number }) {
-  const { selectedRegions, padding = 12 } = props;
+type CardProps = {
+  selectedRegions: string[];
+  padding?: number;
+  onRegionClick?: (name: string) => void;
+};
+
+export function RussiaRegionsMapCard({ selectedRegions, padding = 12, onRegionClick }: CardProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
 
@@ -220,9 +300,15 @@ export function RussiaRegionsMapCard(props: { selectedRegions: string[]; padding
   }, []);
 
   return (
-    <div className="w-full rounded-2xl bg-white">
-      <div ref={ref} className="w-full min-h-[520px] h-[60vh] max-h-[780px] p-4">
-        <RussiaRegionsMapSvg selectedRegions={selectedRegions} width={size.w} height={size.h} padding={padding} />
+    <div className="w-full h-full">
+      <div ref={ref} className="w-full h-full">
+        <RussiaRegionsMapSvg
+          selectedRegions={selectedRegions}
+          width={size.w}
+          height={size.h}
+          padding={padding}
+          onRegionClick={onRegionClick}
+        />
       </div>
     </div>
   );
