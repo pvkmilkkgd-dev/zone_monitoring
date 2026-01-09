@@ -157,10 +157,10 @@ export function AdminSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
-      <div className="max-w-5xl w-full grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        {/* Левая панель */}
-        <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
+        <div className="max-w-5xl w-full grid gap-6 lg:grid-cols-12">
+          {/* Левая панель */}
+          <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur lg:col-span-5 min-w-0">
           <div className="pointer-events-none absolute inset-0 opacity-20">
             <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-sky-500/40 blur-3xl" />
             <div className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-blue-400/30 blur-3xl" />
@@ -314,7 +314,7 @@ export function AdminSettingsPage() {
         </div>
 
         {/* Правая колонка с описанием */}
-        <div className="space-y-4">
+        <div className="space-y-4 lg:col-span-7 min-w-0">
           <div className="rounded-3xl bg-slate-900/80 border border-slate-700/60 p-5 lg:p-6 shadow-lg shadow-slate-950/60">
             <h2 className="text-sm font-semibold text-sky-300 uppercase tracking-wide mb-3">
               Панель администратора
@@ -363,18 +363,18 @@ export function AdminSettingsPage() {
             </div>
 
             <div className="rounded-2xl bg-slate-950/70 overflow-hidden">
-              <div className="bg-slate-900/80 px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+              <div className="bg-slate-900/70 px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
                 Выбрано: {selectedRegions.length}
               </div>
-              <div className="w-full h-[360px] min-w-0">
+              <div className="w-full h-[360px]">
                 <RussiaRegionsMapSvg
                   selectedRegions={selectedRegions}
-                  padding={12}
+                  padding={10}
                   onRegionClick={(regionName) => toggleRegion(regionName)}
                 />
               </div>
             </div>
-          </div>
+            </div>
         </div>
       </div>
     </div>
