@@ -133,7 +133,7 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
       .map((f) => {
         const name = String(f.properties?.name ?? "").trim();
         const resolvedId = resolveRegionId?.(name);
-        const id = resolvedId ?? "";
+        const id = resolvedId ?? name;
         const d = buildPath(f.geometry, view.mapXY);
         return { id, name, d };
       })
