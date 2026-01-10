@@ -11,12 +11,18 @@ from app.api.v1.admin_settings import router as admin_settings_router
 from app.api.v1.routes.auth import router as auth_router
 from app.core.bootstrap import require_bootstrap_completed
 from app.routers.users import router as users_router
+from app.api.debug_db import router as debug_db_router
+from app.api.maps import router as maps_router
 
 
 app = FastAPI(
     title="Zone Monitoring",
     version="0.1.0",
 )
+
+@app.get("/ping")
+def ping():
+    return {"ok": True}
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,6 +47,8 @@ app.include_router(
 )
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(admin_users.router)
+app.include_router(maps_router)
+app.include_router(debug_db_router)
 
 # --- FRONT (Vite build) ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
