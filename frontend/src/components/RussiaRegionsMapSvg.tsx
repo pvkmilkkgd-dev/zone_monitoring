@@ -1,268 +1,183 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { geoMercator, geoPath } from "d3-geo";
+import { useEffect, useMemo, useState } from "react";
 
-type GeoFeature = {
-  type: "Feature";
-  properties?: Record<string, any>;
-  geometry: any;
-};
+type LonLat = [number, number];
 
-type GeoFC = {
+// GeoJSON (минимально нужные типы)
+type GeoJSONFeatureCollection = {
   type: "FeatureCollection";
-  features: GeoFeature[];
+  features: GeoJSONFeature[];
 };
 
-const UI_TO_GEO: Record<string, string> = {
-  "Кабардино-Балкарская Республика": "Кабардино-Балкарская республика",
-  "Карачаево-Черкесская Республика": "Карачаево-Черкесская республика",
-  "Удмуртская Республика": "Удмуртская республика",
-  "Чеченская Республика": "Чеченская республика",
-  "Ханты-Мансийский автономный округ — Югра":
-    "Ханты-Мансийский автономный округ - Югра",
-  "Республика Северная Осетия — Алания":
-    "Республика Северная Осетия - Алания",
+type GeoJSONFeature = {
+  type: "Feature";
+  properties?: {
+    id?: number | string;
+    name?: string;
+    [k: string]: any;
+  };
+  geometry: {
+    type: "Polygon" | "MultiPolygon";
+    coordinates: LonLat[][] | LonLat[][][];
+  };
 };
 
-const GEO_TO_UI: Record<string, string> = Object.fromEntries(
-  Object.entries(UI_TO_GEO).map(([ui, geo]) => [geo, ui]),
-);
-
-function getFeatureName(f: GeoFeature): string {
-  const p = f.properties || {};
-  return (
-    p.name_ru ||
-    p.name ||
-    p.NAME ||
-    p.region ||
-    p.subject ||
-    p.NAME_1 ||
-    ""
-  )
-    .toString()
-    .trim();
-}
-
-/**
- * Аккуратно разворачиваем координаты по антимеридиану (±180),
- * чтобы кольца/линии не "рвались" и fitExtent не ужимал карту.
- */
-function unwrapDatelineIfNeeded(fc: GeoFC): GeoFC {
-  let minLon = Infinity;
-  let maxLon = -Infinity;
-
-  const scan = (coords: any) => {
-    if (!coords) return;
-    if (typeof coords[0] === "number" && typeof coords[1] === "number") {
-      const lon = coords[0];
-      if (Number.isFinite(lon)) {
-        minLon = Math.min(minLon, lon);
-        maxLon = Math.max(maxLon, lon);
-      }
-      return;
-    }
-    for (const c of coords) scan(c);
-  };
-
-  for (const f of fc.features || []) scan((f as any)?.geometry?.coordinates);
-
-  const span = maxLon - minLon;
-  if (!Number.isFinite(span) || span < 300) return fc;
-
-  const fix = (coords: any): any => {
-    if (!coords) return coords;
-    if (typeof coords[0] === "number" && typeof coords[1] === "number") {
-      const lon = coords[0];
-      const lat = coords[1];
-      if (Number.isFinite(lon) && lon < 0) return [lon + 360, lat];
-      return [lon, lat];
-    }
-    return coords.map((c: any) => fix(c));
-  };
-
-  return {
-    ...fc,
-    features: (fc.features || []).map((f) => ({
-      ...f,
-      geometry: {
-        ...(f as any).geometry,
-        coordinates: fix((f as any).geometry?.coordinates),
-      },
-    })),
-  };
-}
-
-type MapProps = {
+type Props = {
   selectedRegions: string[];
-  width?: number;
-  height?: number;
+  onRegionClick?: (regionName: string) => void;
   padding?: number;
-  onRegionClick?: (name: string) => void;
 };
+
+function walkCoords(geom: GeoJSONFeature["geometry"], cb: (pt: LonLat) => void) {
+  if (geom.type === "Polygon") {
+    const poly = geom.coordinates as LonLat[][];
+    for (const ring of poly) for (const pt of ring) cb(pt);
+  } else {
+    const mp = geom.coordinates as LonLat[][][];
+    for (const poly of mp) for (const ring of poly) for (const pt of ring) cb(pt);
+  }
+}
+
+// простая проекция: lon -> x, lat -> y (но y переворачиваем, чтобы север был сверху)
+function project([lon, lat]: LonLat): [number, number] {
+  return [lon, -lat];
+}
+
+function buildPath(geom: GeoJSONFeature["geometry"], mapXY: (pt: LonLat) => [number, number]) {
+  const ringToPath = (ring: LonLat[]) => {
+    if (!ring.length) return "";
+    const [x0, y0] = mapXY(ring[0]);
+    let d = `M ${x0.toFixed(2)} ${y0.toFixed(2)}`;
+    for (let i = 1; i < ring.length; i++) {
+      const [x, y] = mapXY(ring[i]);
+      d += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+    }
+    d += " Z";
+    return d;
+  };
+
+  if (geom.type === "Polygon") {
+    const poly = geom.coordinates as LonLat[][];
+    return poly.map(ringToPath).join(" ");
+  } else {
+    const mp = geom.coordinates as LonLat[][][];
+    return mp.map((poly) => poly.map(ringToPath).join(" ")).join(" ");
+  }
+}
 
 export function RussiaRegionsMapSvg({
   selectedRegions,
-  width,
-  height,
-  padding = 12,
   onRegionClick,
-}: MapProps) {
-  const [geo, setGeo] = useState<GeoFC | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  padding = 10,
+}: Props) {
+  const [fc, setFc] = useState<GeoJSONFeatureCollection | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
-
-  const selectedGeoRegions = useMemo(
-    () => (selectedRegions ?? []).map((s) => UI_TO_GEO[s.trim()] ?? s.trim()),
-    [selectedRegions],
-  );
-  const selectedSet = useMemo(() => new Set(selectedGeoRegions), [selectedGeoRegions]);
-
-  const backend = (import.meta.env.VITE_BACKEND_URL as string | undefined) || "";
-  const url = backend ? `${backend}/maps/ru/regions.geojson` : `/maps/ru/regions.geojson`;
-
-  // Load GeoJSON
   useEffect(() => {
-    let cancelled = false;
+    const ac = new AbortController();
 
     (async () => {
       try {
-        setLoadError(null);
-
-        const resp = await fetch(url, { cache: "no-store" });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} при загрузке ${url}`);
-
-        const ct = resp.headers.get("content-type") || "";
-        if (!ct.includes("application/json") && !ct.includes("geo+json")) {
-          const text = await resp.text();
-          throw new Error(
-            `Ожидали GeoJSON, но получили не JSON (content-type=${ct}). Превью: ${text.slice(0, 80)}`,
-          );
-        }
-
-        const raw = (await resp.json()) as GeoFC;
-        const fixed = unwrapDatelineIfNeeded(raw);
-
-        if (!cancelled) setGeo(fixed);
+        setError(null);
+        const res = await fetch("/maps/ru/regions.geojson", { signal: ac.signal });
+        if (!res.ok) throw new Error(`GeoJSON HTTP ${res.status}`);
+        const data = (await res.json()) as GeoJSONFeatureCollection;
+        setFc(data);
       } catch (e: any) {
-        if (!cancelled) setLoadError(e?.message || "Не удалось загрузить GeoJSON");
+        if (e?.name === "AbortError") return;
+        setError(e?.message ?? "Ошибка загрузки карты");
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-
-  // Measure container
-  useEffect(() => {
-    const el = hostRef.current;
-    if (!el) return;
-
-    const ro = new ResizeObserver(([entry]) => {
-      const { width: w, height: h } = entry.contentRect;
-      setSize({ w: Math.max(0, w), h: Math.max(0, h) });
-    });
-
-    ro.observe(el);
-    return () => ro.disconnect();
+    return () => ac.abort();
   }, []);
 
-  const svgWidth = Math.max(1, Math.floor(size.w || width || 1));
-  const svgHeight = Math.max(1, Math.floor(size.h || height || 1));
+  // вычисляем bbox в проекции
+  const bbox = useMemo(() => {
+    if (!fc) return null;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
 
-  const { pathGen, featuresToDraw } = useMemo(() => {
-    if (!geo) return { pathGen: null as any, featuresToDraw: [] as GeoFeature[] };
-    if (svgWidth < 40 || svgHeight < 40) return { pathGen: null as any, featuresToDraw: [] as GeoFeature[] };
+    for (const f of fc.features) {
+      walkCoords(f.geometry, (pt) => {
+        const [x, y] = project(pt);
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      });
+    }
 
-    const features = geo.features || [];
-    const fc: GeoFC = { type: "FeatureCollection", features };
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
+  }, [fc]);
 
-    const pad = Math.min(padding, Math.floor(Math.min(svgWidth, svgHeight) / 10));
-    const ZOOM = 1.85;
-    const Y_SHIFT = 120;
+  // задаём виртуальный размер svg (viewBox) — компонент сам растянется в контейнере
+  const view = useMemo(() => {
+    if (!bbox) return null;
+    const w = bbox.maxX - bbox.minX;
+    const h = bbox.maxY - bbox.minY;
+    const vbW = w + padding * 2;
+    const vbH = h + padding * 2;
 
-    const proj = geoMercator()
-      .rotate([-105, 0])
-      .fitExtent(
-        [
-          [pad, pad],
-          [svgWidth - pad, svgHeight - pad],
-        ],
-        fc as any,
-      );
+    // функция перевода lon/lat -> координаты внутри viewBox
+    const mapXY = (pt: LonLat): [number, number] => {
+      const [x, y] = project(pt);
+      return [x - bbox.minX + padding, y - bbox.minY + padding];
+    };
 
-    // Увеличиваем зум и рецентрируем (с небольшим смещением вниз)
-    proj.scale(proj.scale() * ZOOM);
+    return { vbW, vbH, mapXY };
+  }, [bbox, padding]);
 
-    const p = geoPath(proj);
-    const b = p.bounds(fc as any);
-    const cx = (b[0][0] + b[1][0]) / 2;
-    const cy = (b[0][1] + b[1][1]) / 2;
-    const targetX = svgWidth / 2;
-    const targetY = svgHeight / 2 + Y_SHIFT;
-    const [tx, ty] = proj.translate();
-    proj.translate([tx + (targetX - cx), ty + (targetY - cy)]);
+  const paths = useMemo(() => {
+    if (!fc || !view) return [];
+    return fc.features
+      .map((f) => {
+        const name = String(f.properties?.name ?? "");
+        const d = buildPath(f.geometry, view.mapXY);
+        return { name, d };
+      })
+      .filter((p) => p.name && p.d);
+  }, [fc, view]);
 
-    return { pathGen: geoPath(proj), featuresToDraw: features };
-  }, [geo, svgWidth, svgHeight, padding]);
+  if (error) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-xs text-red-200">
+        {error}
+      </div>
+    );
+  }
 
-  // Светлое оформление на темной карточке
-  const stroke = "rgba(226,232,240,0.70)";
-  const strokeSelected = "rgba(125,211,252,0.95)";
-  const fillSelected = "rgba(56,189,248,0.22)";
-  const strokeWidth = selectedGeoRegions.length ? 1.2 : 0.8;
+  if (!fc || !view) {
+    return (
+      <div className="h-full w-full flex items-center justify-center text-xs text-slate-300">
+        Загрузка карты…
+      </div>
+    );
+  }
 
   return (
-    <div ref={hostRef} className="w-full h-full min-w-0 relative">
-      {loadError && (
-        <div className="absolute inset-0 flex items-center justify-center px-4 text-xs text-slate-400">
-          Ошибка загрузки карты: {loadError}
-        </div>
-      )}
-
-      {!loadError && (!geo || !pathGen) && (
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">
-          Загрузка карты…
-        </div>
-      )}
-
-      {!loadError && geo && pathGen && (
-        <svg
-          width="100%"
-          height="100%"
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          preserveAspectRatio="xMidYMid meet"
-          className="block w-full h-full"
-          style={{ display: "block" }}
-        >
-          {featuresToDraw.map((f, idx) => {
-            const geoName = getFeatureName(f);
-            const isSelected = selectedSet.has(geoName);
-
-            return (
-              <path
-                key={`${geoName || "region"}-${idx}`}
-                d={pathGen(f as any) || ""}
-                fill={isSelected ? fillSelected : "transparent"}
-                stroke={isSelected ? strokeSelected : stroke}
-                strokeWidth={strokeWidth}
-                vectorEffect="non-scaling-stroke"
-                className="cursor-pointer transition-colors"
-                fillRule="evenodd"
-                clipRule="evenodd"
-                onClick={() => {
-                  if (!geoName) return;
-                  const uiName = GEO_TO_UI[geoName] ?? geoName;
-                  onRegionClick?.(uiName);
-                }}
-              >
-                <title>{geoName || "Без названия"}</title>
-              </path>
-            );
-          })}
-        </svg>
-      )}
-    </div>
+    <svg className="w-full h-full" viewBox={`0 0 ${view.vbW} ${view.vbH}`} preserveAspectRatio="none">
+      <g>
+        {paths.map(({ name, d }) => {
+          const active = selectedRegions.includes(name);
+          return (
+            <path
+              key={name}
+              d={d}
+              fill={active ? "rgba(56,189,248,0.25)" : "rgba(148,163,184,0.10)"}
+              stroke={active ? "rgba(56,189,248,0.9)" : "rgba(148,163,184,0.55)"}
+              strokeWidth={0.35}
+              fillRule="evenodd"
+              className="cursor-pointer transition"
+              onClick={() => onRegionClick?.(name)}
+            >
+              <title>{name}</title>
+            </path>
+          );
+        })}
+      </g>
+    </svg>
   );
 }

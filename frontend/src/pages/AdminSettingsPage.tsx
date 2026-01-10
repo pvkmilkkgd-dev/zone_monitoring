@@ -1,98 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchSystemSettings, updateSystemSettings } from "../api";
 import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
 
-const REGIONS = [
-  "Алтайский край",
-  "Амурская область",
-  "Архангельская область",
-  "Астраханская область",
-  "Белгородская область",
-  "Брянская область",
-  "Владимирская область",
-  "Волгоградская область",
-  "Вологодская область",
-  "Воронежская область",
-  "Еврейская автономная область",
-  "Забайкальский край",
-  "Ивановская область",
-  "Иркутская область",
-  "Кабардино-Балкарская Республика",
-  "Калининградская область",
-  "Калужская область",
-  "Камчатский край",
-  "Карачаево-Черкесская Республика",
-  "Кемеровская область",
-  "Кировская область",
-  "Костромская область",
-  "Краснодарский край",
-  "Красноярский край",
-  "Курганская область",
-  "Курская область",
-  "Ленинградская область",
-  "Липецкая область",
-  "Магаданская область",
-  "Москва",
-  "Московская область",
-  "Мурманская область",
-  "Ненецкий автономный округ",
-  "Нижегородская область",
-  "Новгородская область",
-  "Новосибирская область",
-  "Омская область",
-  "Оренбургская область",
-  "Орловская область",
-  "Пензенская область",
-  "Пермский край",
-  "Приморский край",
-  "Псковская область",
-  "Республика Адыгея",
-  "Республика Алтай",
-  "Республика Башкортостан",
-  "Республика Бурятия",
-  "Республика Дагестан",
-  "Республика Ингушетия",
-  "Республика Калмыкия",
-  "Республика Карелия",
-  "Республика Коми",
-  "Республика Крым",
-  "Республика Марий Эл",
-  "Республика Мордовия",
-  "Республика Саха (Якутия)",
-  "Республика Северная Осетия — Алания",
-  "Республика Татарстан",
-  "Республика Тыва",
-  "Республика Хакасия",
-  "Ростовская область",
-  "Рязанская область",
-  "Самарская область",
-  "Санкт-Петербург",
-  "Саратовская область",
-  "Сахалинская область",
-  "Свердловская область",
-  "Севастополь",
-  "Смоленская область",
-  "Ставропольский край",
-  "Тамбовская область",
-  "Тверская область",
-  "Томская область",
-  "Тульская область",
-  "Тюменская область",
-  "Удмуртская Республика",
-  "Ульяновская область",
-  "Хабаровский край",
-  "Ханты-Мансийский автономный округ — Югра",
-  "Челябинская область",
-  "Чеченская Республика",
-  "Чувашская Республика",
-  "Чукотский автономный округ",
-  "Ямало-Ненецкий автономный округ",
-  "Ярославская область",
-  "Донецкая Народная Республика",
-  "Луганская Народная Республика",
-  "Херсонская область",
-  "Запорожская область",
-];
+type Region = { id: number; name: string };
 
 export function AdminSettingsPage() {
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
@@ -100,12 +10,17 @@ export function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [regionsLoading, setRegionsLoading] = useState(false);
+  const deptRef = useRef<HTMLTextAreaElement>(null);
+  const [deptFocused, setDeptFocused] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
+
         const data = await fetchSystemSettings();
         if (data) {
           if (data.region) {
@@ -117,10 +32,17 @@ export function AdminSettingsPage() {
           }
           setDepartmentName(data.department_name || "");
         }
+
+        setRegionsLoading(true);
+        const res = await fetch("/api/regions");
+        if (!res.ok) throw new Error(`Не удалось загрузить регионы: HTTP ${res.status}`);
+        const list = (await res.json()) as Region[];
+        setRegions(list);
       } catch (e: any) {
         console.error(e);
         setError(e.message || "Ошибка загрузки настроек");
       } finally {
+        setRegionsLoading(false);
         setLoading(false);
       }
     };
@@ -158,9 +80,9 @@ export function AdminSettingsPage() {
 
   return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
-        <div className="max-w-5xl w-full grid gap-6 lg:grid-cols-12">
+        <div className="max-w-7xl w-full flex flex-col lg:flex-row gap-6">
           {/* Левая панель */}
-          <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur lg:col-span-5 min-w-0">
+          <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur lg:flex-1 min-w-0">
           <div className="pointer-events-none absolute inset-0 opacity-20">
             <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-sky-500/40 blur-3xl" />
             <div className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-blue-400/30 blur-3xl" />
@@ -209,13 +131,31 @@ export function AdminSettingsPage() {
                     <label className="block text-sm font-medium text-slate-100">
                       Название управления
                     </label>
-                    <input
-                      type="text"
-                      value={departmentName}
-                      onChange={(e) => setDepartmentName(e.target.value)}
-                      placeholder="Например: Отдел мониторинга и реагирования, УОМЗ г. Первоуральск"
-                      className="w-full rounded-xl border border-slate-600 bg-slate-900/80 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-                    />
+
+                    {/* Контейнер 1-в-1 как у "Регионы ещё не выбраны..." */}
+                    <div
+                      className="relative min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80"
+                      onClick={() => deptRef.current?.focus()}
+                    >
+                      {/* Подсказка (не сдвигает курсор) */}
+                      {!departmentName.trim() && !deptFocused && (
+                        <div className="pointer-events-none absolute inset-0 px-3 py-2 text-xs text-slate-500">
+                          Например: Отдел мониторинга и реагирования, УОМЗ г. Первоуральск
+                        </div>
+                      )}
+
+                      {/* Реальное поле ввода */}
+                      <textarea
+                        ref={deptRef}
+                        value={departmentName}
+                        onChange={(e) => setDepartmentName(e.target.value)}
+                        onFocus={() => setDeptFocused(true)}
+                        onBlur={() => setDeptFocused(false)}
+                        rows={1}
+                        className="w-full min-h-[40px] bg-transparent px-3 py-2 text-sm text-slate-50 focus:outline-none resize-none overflow-y-auto"
+                      />
+                    </div>
+
                     <p className="text-xs text-slate-400">
                       Это название будет отображаться в шапке сервиса и в формируемых документах.
                     </p>
@@ -264,27 +204,32 @@ export function AdminSettingsPage() {
                     {/* СКРОЛБОКС СО СПИСКОМ РЕГИОНОВ */}
                     <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
                       <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
-                        {REGIONS.map((region) => {
-                          const active = selectedRegions.includes(region);
-                          return (
-                            <button
-                              key={region}
-                              type="button"
-                              onClick={() => toggleRegion(region)}
-                              className={
-                                "w-full flex items-center justify-between px-3 py-2.5 text-left text-xs sm:text-sm transition " +
-                                (active
-                                  ? "bg-sky-500/15 text-sky-100"
-                                  : "text-slate-200 hover:bg-slate-800/80")
-                              }
-                            >
-                              <span>{region}</span>
-                              {active && (
-                                <span className="ml-3 h-2.5 w-2.5 rounded-full bg-sky-400" />
-                              )}
-                            </button>
-                          );
-                        })}
+                        {regionsLoading ? (
+                          <div className="px-3 py-3 text-sm text-slate-300">Загрузка списка регионов…</div>
+                        ) : (
+                          regions.map((r) => {
+                            const region = r.name;
+                            const active = selectedRegions.includes(region);
+                            return (
+                              <button
+                                key={r.id}
+                                type="button"
+                                onClick={() => toggleRegion(region)}
+                                className={
+                                  "w-full flex items-center justify-between px-3 py-2.5 text-left text-xs sm:text-sm transition " +
+                                  (active
+                                    ? "bg-sky-500/15 text-sky-100"
+                                    : "text-slate-200 hover:bg-slate-800/80")
+                                }
+                              >
+                                <span>{region}</span>
+                                {active && (
+                                  <span className="ml-3 h-2.5 w-2.5 rounded-full bg-sky-400" />
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
                       </div>
                     </div>
 
@@ -314,7 +259,7 @@ export function AdminSettingsPage() {
         </div>
 
         {/* Правая колонка с описанием */}
-        <div className="space-y-4 lg:col-span-7 min-w-0">
+        <div className="space-y-4 w-full lg:w-[720px] shrink-0 min-w-0">
           <div className="rounded-3xl bg-slate-900/80 border border-slate-700/60 p-5 lg:p-6 shadow-lg shadow-slate-950/60">
             <h2 className="text-sm font-semibold text-sky-300 uppercase tracking-wide mb-3">
               Панель администратора

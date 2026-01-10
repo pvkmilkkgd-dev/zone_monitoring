@@ -1,9 +1,8 @@
 import React from "react";
-import { AdminSettingsPage } from "./AdminSettingsPage";
+import { RegionsAdmin } from "./admin/RegionsAdmin";
 
 function AdminPage() {
-  // Показываем только страницу настроек системы, без кнопки "Настройки администратора"
-  return <AdminSettingsPage />;
+  return <RegionsAdmin />;
 }
 
 export default AdminPage;
