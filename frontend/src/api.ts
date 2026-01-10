@@ -13,15 +13,17 @@ export interface UserDto {
 
 export interface SystemSettingsResponse {
   id: number;
-  region: string | null;
   department_name: string | null;
-  created_at: string;
-  updated_at: string;
+  region_ids: string[]; // UUID[]
+  region?: string | null; // совместимость
+
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface SystemSettingsUpdatePayload {
-  region: string | null;
   department_name: string | null;
+  region_ids: string[]; // UUID[]
 }
 
 function getAuthHeaders() {

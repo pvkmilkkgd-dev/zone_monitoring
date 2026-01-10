@@ -30,7 +30,7 @@ export function AdminSettingsPage() {
               .filter(Boolean);
             setSelectedRegions(regionsFromServer);
           }
-          setDepartmentName(data.department_name || "");
+          setDepartmentName(data.department_name ?? "");
         }
 
         setRegionsLoading(true);

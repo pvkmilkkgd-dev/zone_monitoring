@@ -22,8 +22,9 @@ type GeoJSONFeature = {
 };
 
 type Props = {
-  selectedRegions: string[];
-  onRegionClick?: (regionName: string) => void;
+  selectedRegionIds: string[];
+  onRegionClick?: (regionId: string) => void;
+  resolveRegionId?: (regionName: string) => string | undefined;
   padding?: number;
 };
 
@@ -64,11 +65,7 @@ function buildPath(geom: GeoJSONFeature["geometry"], mapXY: (pt: LonLat) => [num
   }
 }
 
-export function RussiaRegionsMapSvg({
-  selectedRegions,
-  onRegionClick,
-  padding = 10,
-}: Props) {
+export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveRegionId, padding = 10 }: Props) {
   const [fc, setFc] = useState<GeoJSONFeatureCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,12 +131,14 @@ export function RussiaRegionsMapSvg({
     if (!fc || !view) return [];
     return fc.features
       .map((f) => {
-        const name = String(f.properties?.name ?? "");
+        const name = String(f.properties?.name ?? "").trim();
+        const resolvedId = resolveRegionId?.(name);
+        const id = resolvedId ?? "";
         const d = buildPath(f.geometry, view.mapXY);
-        return { name, d };
+        return { id, name, d };
       })
       .filter((p) => p.name && p.d);
-  }, [fc, view]);
+  }, [fc, view, resolveRegionId]);
 
   if (error) {
     return (
@@ -160,18 +159,33 @@ export function RussiaRegionsMapSvg({
   return (
     <svg className="w-full h-full" viewBox={`0 0 ${view.vbW} ${view.vbH}`} preserveAspectRatio="none">
       <g>
-        {paths.map(({ name, d }) => {
-          const active = selectedRegions.includes(name);
+        {paths.map(({ id, name, d }) => {
+          const known = Boolean(id);
+          const active = known && selectedRegionIds.includes(id);
           return (
             <path
-              key={name}
+              key={id || name}
               d={d}
-              fill={active ? "rgba(56,189,248,0.25)" : "rgba(148,163,184,0.10)"}
-              stroke={active ? "rgba(56,189,248,0.9)" : "rgba(148,163,184,0.55)"}
+              fill={
+                !known
+                  ? "rgba(148,163,184,0.06)"
+                  : active
+                  ? "rgba(56,189,248,0.25)"
+                  : "rgba(148,163,184,0.10)"
+              }
+              stroke={
+                !known
+                  ? "rgba(148,163,184,0.25)"
+                  : active
+                  ? "rgba(56,189,248,0.9)"
+                  : "rgba(148,163,184,0.55)"
+              }
               strokeWidth={0.35}
               fillRule="evenodd"
-              className="cursor-pointer transition"
-              onClick={() => onRegionClick?.(name)}
+              className={known ? "cursor-pointer transition" : "cursor-default"}
+              onClick={() => {
+                if (known) onRegionClick?.(id);
+              }}
             >
               <title>{name}</title>
             </path>

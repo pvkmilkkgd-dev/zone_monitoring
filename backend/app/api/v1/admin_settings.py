@@ -28,23 +28,22 @@ def update_system_settings(
     db: Session = Depends(get_db),
     _: None = Depends(get_current_admin_user),
 ):
-    """
-    Создать или обновить настройки системы.
-    """
     settings = db.query(SystemSettings).order_by(SystemSettings.id.asc()).first()
 
     if settings is None:
-        settings = SystemSettings(
-            region=payload.region,
-            department_name=payload.department_name,
-        )
+        settings = SystemSettings()
         db.add(settings)
-        db.commit()
-        db.refresh(settings)
-        return settings
 
-    settings.region = payload.region
     settings.department_name = payload.department_name
+
+    if payload.region_ids is not None:
+        settings.region_ids = payload.region_ids
+        # оставляем поддержку старого поля region для совместимости
+        settings.region = payload.region
+    else:
+        # если фронт шлёт старое поле region строкой — не трогаем region_ids
+        if payload.region is not None:
+            settings.region = payload.region
 
     db.commit()
     db.refresh(settings)
