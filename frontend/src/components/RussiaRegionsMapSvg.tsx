@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 type LonLat = [number, number];
 
-// GeoJSON (минимально нужные типы)
 type GeoJSONFeatureCollection = {
   type: "FeatureCollection";
   features: GeoJSONFeature[];
@@ -28,6 +27,11 @@ type Props = {
   padding?: number;
 };
 
+type ViewBox = { x: number; y: number; w: number; h: number };
+const vbToString = (v: ViewBox) => `${v.x} ${v.y} ${v.w} ${v.h}`;
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
 function walkCoords(geom: GeoJSONFeature["geometry"], cb: (pt: LonLat) => void) {
   if (geom.type === "Polygon") {
     const poly = geom.coordinates as LonLat[][];
@@ -38,7 +42,6 @@ function walkCoords(geom: GeoJSONFeature["geometry"], cb: (pt: LonLat) => void) 
   }
 }
 
-// простая проекция: lon -> x, lat -> y (но y переворачиваем, чтобы север был сверху)
 function project([lon, lat]: LonLat): [number, number] {
   return [lon, -lat];
 }
@@ -68,6 +71,7 @@ function buildPath(geom: GeoJSONFeature["geometry"], mapXY: (pt: LonLat) => [num
 export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveRegionId, padding = 10 }: Props) {
   const [fc, setFc] = useState<GeoJSONFeatureCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentVB, setCurrentVB] = useState<ViewBox | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -88,7 +92,6 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     return () => ac.abort();
   }, []);
 
-  // вычисляем bbox в проекции
   const bbox = useMemo(() => {
     if (!fc) return null;
     let minX = Infinity,
@@ -110,7 +113,6 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     return { minX, minY, maxX, maxY };
   }, [fc]);
 
-  // задаём виртуальный размер svg (viewBox) — компонент сам растянется в контейнере
   const view = useMemo(() => {
     if (!bbox) return null;
     const w = bbox.maxX - bbox.minX;
@@ -118,7 +120,6 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     const vbW = w + padding * 2;
     const vbH = h + padding * 2;
 
-    // функция перевода lon/lat -> координаты внутри viewBox
     const mapXY = (pt: LonLat): [number, number] => {
       const [x, y] = project(pt);
       return [x - bbox.minX + padding, y - bbox.minY + padding];
@@ -128,17 +129,152 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
   }, [bbox, padding]);
 
   const paths = useMemo(() => {
-    if (!fc || !view) return [];
-    return fc.features
+    if (!fc || !view || !bbox) return [];
+
+    const built = fc.features
       .map((f) => {
-        const name = String(f.properties?.name ?? "").trim();
+        const name = String(f.properties?.name ?? "");
+        const rawId = String(f.properties?.id ?? name);
         const resolvedId = resolveRegionId?.(name);
-        const id = resolvedId ?? name;
+        const finalId = resolvedId ?? rawId;
+
         const d = buildPath(f.geometry, view.mapXY);
-        return { id, name, d };
+
+        let fMinX = Infinity,
+          fMinY = Infinity,
+          fMaxX = -Infinity,
+          fMaxY = -Infinity;
+
+        walkCoords(f.geometry, (pt) => {
+          const [x, y] = project(pt);
+          const vx = x - bbox.minX + padding;
+          const vy = y - bbox.minY + padding;
+
+          if (vx < fMinX) fMinX = vx;
+          if (vy < fMinY) fMinY = vy;
+          if (vx > fMaxX) fMaxX = vx;
+          if (vy > fMaxY) fMaxY = vy;
+        });
+
+        const hasBox = isFinite(fMinX) && isFinite(fMinY) && isFinite(fMaxX) && isFinite(fMaxY);
+
+        return {
+          id: finalId,
+          name,
+          d,
+          box: hasBox ? { minX: fMinX, minY: fMinY, maxX: fMaxX, maxY: fMaxY } : null,
+        };
       })
       .filter((p) => p.name && p.d);
-  }, [fc, view, resolveRegionId]);
+
+    console.log("path ids:", built.slice(0, 5).map((p) => p.id));
+    console.log("selected ids:", selectedRegionIds);
+    return built;
+  }, [fc, view, bbox, padding, resolveRegionId, selectedRegionIds]);
+
+  const fullVB = useMemo<ViewBox | null>(() => {
+    if (!view) return null;
+    return { x: 0, y: 0, w: view.vbW, h: view.vbH };
+  }, [view]);
+
+  const targetVB = useMemo<ViewBox | null>(() => {
+    if (!view || !fullVB) return null;
+    if (!selectedRegionIds?.length) return fullVB;
+
+    const selectedBoxes = selectedRegionIds
+      .map((id) => paths.find((p) => p.id === id)?.box)
+      .filter(Boolean) as Array<{ minX: number; minY: number; maxX: number; maxY: number }>;
+
+    if (selectedBoxes.length === 0) return fullVB;
+
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+
+    for (const b of selectedBoxes) {
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
+    }
+
+    const pad = 18;
+    const w = maxX - minX;
+    const h = maxY - minY;
+
+    let x = minX - pad;
+    let y = minY - pad;
+    let vw = w + pad * 2;
+    let vh = h + pad * 2;
+
+    const k = 1.12;
+    vw *= k;
+    vh *= k;
+    x -= (vw - (w + pad * 2)) / 2;
+    y -= (vh - (h + pad * 2)) / 2;
+
+    const clamped: ViewBox = { x, y, w: vw, h: vh };
+
+    if (clamped.x < 0) clamped.x = 0;
+    if (clamped.y < 0) clamped.y = 0;
+    if (clamped.x + clamped.w > view.vbW) clamped.x = view.vbW - clamped.w;
+    if (clamped.y + clamped.h > view.vbH) clamped.y = view.vbH - clamped.h;
+
+    if (!isFinite(clamped.x) || !isFinite(clamped.y) || clamped.w <= 0 || clamped.h <= 0) {
+      return fullVB;
+    }
+
+    return clamped;
+  }, [selectedRegionIds, paths, view, fullVB]);
+
+  useEffect(() => {
+    if (fullVB && !currentVB) setCurrentVB(fullVB);
+  }, [fullVB, currentVB]);
+
+  useEffect(() => {
+    if (!targetVB || !currentVB) return;
+
+    const same =
+      Math.abs(currentVB.x - targetVB.x) < 0.001 &&
+      Math.abs(currentVB.y - targetVB.y) < 0.001 &&
+      Math.abs(currentVB.w - targetVB.w) < 0.001 &&
+      Math.abs(currentVB.h - targetVB.h) < 0.001;
+
+    if (same) return;
+
+    const prefersReduced =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+    if (prefersReduced) {
+      setCurrentVB(targetVB);
+      return;
+    }
+
+    const from = currentVB;
+    const to = targetVB;
+    const dur = 260;
+    let raf = 0;
+    const t0 = performance.now();
+
+    const tick = (now: number) => {
+      const raw = (now - t0) / dur;
+      const t = Math.min(1, Math.max(0, raw));
+      const e = easeInOutCubic(t);
+
+      setCurrentVB({
+        x: lerp(from.x, to.x, e),
+        y: lerp(from.y, to.y, e),
+        w: lerp(from.w, to.w, e),
+        h: lerp(from.h, to.h, e),
+      });
+
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [targetVB]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
@@ -148,7 +284,7 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     );
   }
 
-  if (!fc || !view) {
+  if (!fc || !view || !currentVB) {
     return (
       <div className="h-full w-full flex items-center justify-center text-xs text-slate-300">
         Загрузка карты…
@@ -157,7 +293,12 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
   }
 
   return (
-    <svg className="w-full h-full" viewBox={`0 0 ${view.vbW} ${view.vbH}`} preserveAspectRatio="none">
+    <svg
+      className="w-full h-full"
+      viewBox={vbToString(currentVB)}
+      preserveAspectRatio="none"
+      shapeRendering="geometricPrecision"
+    >
       <g>
         {paths.map(({ id, name, d }) => {
           const known = Boolean(id);
@@ -166,21 +307,12 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
             <path
               key={id || name}
               d={d}
-              fill={
-                !known
-                  ? "rgba(148,163,184,0.06)"
-                  : active
-                  ? "rgba(56,189,248,0.25)"
-                  : "rgba(148,163,184,0.10)"
-              }
-              stroke={
-                !known
-                  ? "rgba(148,163,184,0.25)"
-                  : active
-                  ? "rgba(56,189,248,0.9)"
-                  : "rgba(148,163,184,0.55)"
-              }
-              strokeWidth={0.35}
+              fill={active ? "rgba(56,189,248,0.18)" : "rgba(148,163,184,0.06)"}
+              stroke={active ? "rgba(56,189,248,0.95)" : "rgba(148,163,184,0.80)"}
+              strokeWidth={0.22}
+              vectorEffect="non-scaling-stroke"
+              strokeLinecap="square"
+              strokeLinejoin="miter"
               fillRule="evenodd"
               className={known ? "cursor-pointer transition" : "cursor-default"}
               onClick={() => {

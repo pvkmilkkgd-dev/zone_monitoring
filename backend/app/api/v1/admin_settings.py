@@ -34,16 +34,16 @@ def update_system_settings(
         settings = SystemSettings()
         db.add(settings)
 
-    settings.department_name = payload.department_name
+    data = payload.model_dump(exclude_unset=True)
 
-    if payload.region_ids is not None:
-        settings.region_ids = payload.region_ids
-        # оставляем поддержку старого поля region для совместимости
+    if "department_name" in data:
+        settings.department_name = data["department_name"]
+
+    if "region_ids" in data and data["region_ids"] is not None:
+        settings.region_ids = data["region_ids"]
         settings.region = payload.region
-    else:
-        # если фронт шлёт старое поле region строкой — не трогаем region_ids
-        if payload.region is not None:
-            settings.region = payload.region
+    elif "region" in data and data["region"] is not None:
+        settings.region = data["region"]
 
     db.commit()
     db.refresh(settings)

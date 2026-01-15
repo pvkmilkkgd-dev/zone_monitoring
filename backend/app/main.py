@@ -13,6 +13,7 @@ from app.core.bootstrap import require_bootstrap_completed
 from app.routers.users import router as users_router
 from app.api.maps import router as maps_router
 from app.api.regions import router as regions_router
+from app.api.admin_regions_import import router as admin_regions_router
 
 
 app = FastAPI(
@@ -49,6 +50,7 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(admin_users.router)
 app.include_router(maps_router)
 app.include_router(regions_router)
+app.include_router(admin_regions_router, prefix="/api/v1")
 
 # --- FRONT (Vite build) ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

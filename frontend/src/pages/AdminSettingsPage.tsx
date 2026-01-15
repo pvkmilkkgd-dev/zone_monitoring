@@ -23,7 +23,6 @@ export function AdminSettingsPage() {
   const [regions, setRegions] = useState<Region[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(false);
   const deptRef = useRef<HTMLTextAreaElement>(null);
-  const [deptFocused, setDeptFocused] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -32,9 +31,10 @@ export function AdminSettingsPage() {
         setError(null);
 
         const data = await fetchSystemSettings();
+        console.log("settings from API =", data);
         if (data) {
           setDepartmentName(data.department_name || "");
-          setSelectedRegionIds(Array.isArray(data.region_ids) ? data.region_ids : []);
+          setSelectedRegionIds(Array.isArray(data.region_ids) ? data.region_ids.map(String) : []);
         }
 
         setRegionsLoading(true);
@@ -54,48 +54,69 @@ export function AdminSettingsPage() {
     load();
   }, []);
 
-  const idByName = useMemo(() => {
+  const regionIdToName = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of regions) m.set(r.name, r.id);
+    for (const r of regions) m.set(String(r.id), r.name);
     return m;
   }, [regions]);
 
-  const nameById = useMemo(() => {
+  const regionNameToId = useMemo(() => {
     const m = new Map<string, string>();
-    for (const r of regions) m.set(r.id, r.name);
+    for (const r of regions) {
+      const base = normRegionName(r.name);
+      m.set(r.name, r.id);
+      m.set(base, r.id);
+    }
     return m;
   }, [regions]);
 
-  const selectedRegionNames = useMemo(() => {
-    return selectedRegionIds
-      .map((id) => nameById.get(id))
-      .filter(Boolean) as string[];
-  }, [selectedRegionIds, nameById]);
+  const selectedRegions = useMemo(() => {
+    return selectedRegionIds.map((id) => ({
+      id,
+      name: regionIdToName.get(id) ?? id,
+    }));
+  }, [selectedRegionIds, regionIdToName]);
+
+  console.log("departmentName NOW =", JSON.stringify(departmentName));
 
   const toggleRegionId = (id: string) => {
     setSelectedRegionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const handleMapClick = (key: string) => {
-    const uuidLike =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (uuidLike.test(key)) {
-      toggleRegionId(key);
-      return;
+  const uploadRegion = async (file: File) => {
+    const token = localStorage.getItem("access_token") || localStorage.getItem("accessToken");
+    const fd = new FormData();
+    fd.append("file", file);
+
+    const resp = await fetch("/api/v1/admin/regions/import", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(text || `Upload failed: ${resp.status}`);
     }
-    const id = idByName.get(key) || idByName.get(normRegionName(key));
-    if (id) toggleRegionId(id);
+    return resp.json();
   };
 
   const handleSave = async () => {
     try {
+      if (selectedRegionIds.length === 0) {
+        setError("Выберите хотя бы один регион.");
+        return;
+      }
+
       setSaving(true);
       setError(null);
 
+      const cleanedName = departmentName.trim();
       await updateSystemSettings({
+        department_name: cleanedName.length ? cleanedName : null,
         region_ids: selectedRegionIds,
-        department_name: departmentName || null,
       });
+      setDepartmentName(cleanedName);
 
       alert("Настройки сохранены");
     } catch (e: any) {
@@ -157,10 +178,10 @@ export function AdminSettingsPage() {
                     <label className="block text-sm font-medium text-slate-100">Название управления</label>
 
                     <div
-                      className="relative min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80"
+                      className="relative min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80 cursor-text"
                       onClick={() => deptRef.current?.focus()}
                     >
-                      {!departmentName.trim() && !deptFocused && (
+                      {departmentName.length === 0 && (
                         <div className="pointer-events-none absolute inset-0 px-3 py-2 text-xs text-slate-500">
                           Например: Отдел мониторинга и реагирования, УОМЗ г. Первоуральск
                         </div>
@@ -170,9 +191,8 @@ export function AdminSettingsPage() {
                         ref={deptRef}
                         value={departmentName}
                         onChange={(e) => setDepartmentName(e.target.value)}
-                        onFocus={() => setDeptFocused(true)}
-                        onBlur={() => setDeptFocused(false)}
                         rows={1}
+                        onBlur={() => setDepartmentName((v) => v.trim())}
                         className="w-full min-h-[40px] bg-transparent px-3 py-2 text-sm text-slate-50 focus:outline-none resize-none overflow-y-auto"
                       />
                     </div>
@@ -198,24 +218,21 @@ export function AdminSettingsPage() {
                         </p>
                       ) : (
                         <div className="flex flex-wrap gap-2">
-                          {selectedRegionIds.map((id) => {
-                            const name = nameById.get(id) ?? id;
-                            return (
-                              <span
-                                key={id}
-                                className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 border border-sky-500/40 px-3 py-1 text-xs text-sky-100"
+                          {selectedRegions.map(({ id, name }) => (
+                            <span
+                              key={id}
+                              className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 border border-sky-500/40 px-3 py-1 text-xs text-sky-100"
+                            >
+                              <span>{name}</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleRegionId(id)}
+                                className="ml-1 text-sky-200/80 hover:text-sky-50 text-[10px] leading-none"
                               >
-                                <span>{name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleRegionId(id)}
-                                  className="ml-1 text-sky-200/80 hover:text-sky-50 text-[10px] leading-none"
-                                >
-                                  ✕
-                                </button>
-                              </span>
-                            );
-                          })}
+                                ✕
+                              </button>
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -235,9 +252,7 @@ export function AdminSettingsPage() {
                                 onClick={() => toggleRegionId(r.id)}
                                 className={
                                   "w-full flex items-center justify-between px-3 py-2.5 text-left text-xs sm:text-sm transition " +
-                                  (active
-                                    ? "bg-sky-500/15 text-sky-100"
-                                    : "text-slate-200 hover:bg-slate-800/80")
+                                  (active ? "bg-sky-500/15 text-sky-100" : "text-slate-200 hover:bg-slate-800/80")
                                 }
                               >
                                 <span>{r.name}</span>
@@ -252,6 +267,32 @@ export function AdminSettingsPage() {
                     <p className="text-xs text-slate-400">
                       Выбранные регионы используются в отчётах, фильтрах и в шапке панели мониторинга.
                     </p>
+
+                    <div className="pt-1">
+                      <label className="block text-xs text-slate-400 mb-1">Загрузить регион (GeoJSON)</label>
+                      <input
+                        type="file"
+                        accept=".geojson,.json"
+                        className="text-xs text-slate-300 file:mr-3 file:rounded-lg file:border file:border-slate-600 file:bg-slate-800 file:px-3 file:py-1.5 file:text-slate-100 file:cursor-pointer"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          try {
+                            await uploadRegion(f);
+                            const res = await fetch("/api/regions");
+                            if (res.ok) {
+                              const list = (await res.json()) as Region[];
+                              setRegions(list);
+                            }
+                            alert("Регион загружен");
+                          } catch (err: any) {
+                            alert(err?.message || "Ошибка загрузки региона");
+                          } finally {
+                            e.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -319,11 +360,14 @@ export function AdminSettingsPage() {
               </div>
               <div className="w-full h-[360px]">
                 <RussiaRegionsMapSvg
-                  selectedRegionIds={selectedRegionNames}
+                  selectedRegionIds={selectedRegionIds}
                   padding={10}
-                  onRegionClick={(regionName) => {
-                    const id = idByName.get(regionName) || idByName.get(normRegionName(regionName));
-                    if (id) toggleRegionId(id);
+                  resolveRegionId={(geoName) => {
+                    const n = normRegionName(geoName);
+                    return regionNameToId.get(n) ?? regionNameToId.get(geoName);
+                  }}
+                  onRegionClick={(regionId) => {
+                    toggleRegionId(regionId);
                   }}
                 />
               </div>
