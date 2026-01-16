@@ -140,12 +140,18 @@ export function RussiaRegionsMapSvg({
     if (!bbox) return null;
     const w = bbox.maxX - bbox.minX;
     const h = bbox.maxY - bbox.minY;
-    const vbW = w + padding * 2;
-    const vbH = h + padding * 2;
+    
+    // Увеличиваем вертикальный padding для более вертикального вида карты
+    // Горизонтальный padding остается стандартным, вертикальный увеличен
+    const horizontalPad = padding;
+    const verticalPad = padding * 2; // Увеличенный вертикальный padding
+    
+    const vbW = w + horizontalPad * 2;
+    const vbH = h + verticalPad * 2;
 
     const mapXY = (pt: LonLat): [number, number] => {
       const [x, y] = project(pt);
-      return [x - bbox.minX + padding, y - bbox.minY + padding];
+      return [x - bbox.minX + horizontalPad, y - bbox.minY + verticalPad];
     };
 
     return { vbW, vbH, mapXY };
@@ -193,7 +199,27 @@ export function RussiaRegionsMapSvg({
 
   const fullVB = useMemo<ViewBox | null>(() => {
     if (!view) return null;
-    return { x: 0, y: 0, w: view.vbW, h: view.vbH };
+    
+    // Для общего вида: используем полную ширину карты и увеличиваем высоту для растяжения по вертикали
+    // Ширина остается полной, увеличиваем только высоту viewBox
+    // Отрицательное значение уменьшает высоту viewBox, увеличивая масштаб карты
+    const additionalVerticalPad = view.vbH * -0.2; // Уменьшаем высоту viewBox на 20% для увеличения масштаба
+    
+    // Ширина - полная, карта на всю ширину контейнера
+    const w = view.vbW;
+    // Высота - увеличиваем для растяжения по вертикали
+    const h = view.vbH + additionalVerticalPad;
+    
+    // Центрируем по вертикали
+    const centerY = view.vbH / 2;
+    const y = centerY - h / 2;
+    
+    return {
+      x: 0, // Начало по горизонтали - вся карта видна
+      y: y, // Центрируем по вертикали с дополнительным пространством
+      w: w, // Полная ширина - карта занимает всё пространство
+      h: h, // Увеличенная высота для растяжения по вертикали
+    };
   }, [view]);
 
   const targetVB = useMemo<ViewBox | null>(() => {
@@ -218,26 +244,110 @@ export function RussiaRegionsMapSvg({
       if (b.maxY > maxY) maxY = b.maxY;
     }
 
-    const pad = 18;
     const w = maxX - minX;
     const h = maxY - minY;
 
-    const x = minX - pad;
-    const y = minY - pad;
-    const vw = w + pad * 2;
-    const vh = h + pad * 2;
+    // Вычисляем размер региона относительно полной карты для определения, мелкий ли он
+    const regionArea = w * h;
+    const fullMapArea = view.vbW * view.vbH;
+    const regionSizeRatio = regionArea / fullMapArea;
+    
+    // Определяем, мелкий ли регион (если занимает меньше 2% площади карты)
+    const isSmallRegion = regionSizeRatio < 0.02;
+    
+    // Для мелких регионов применяем больший zoom (уменьшаем viewBox)
+    // Но делаем это менее агрессивно, чтобы регион оставался видимым
+    // Для крупных регионов применяем такое же приближение, но очень маленькое
+    const zoomFactor = isSmallRegion ? 0.75 : 0.95; // Мелкие - 0.75, крупные - 0.95 (очень маленькое приближение)
 
-    const clamped: ViewBox = { x, y, w: vw, h: vh };
+    // Используем динамический padding для лучшей видимости
+    const pad = Math.max(18, Math.min(w, h) * 0.1); // Минимум 18, или 10% от меньшего размера
 
-    if (clamped.x < 0) clamped.x = 0;
-    if (clamped.y < 0) clamped.y = 0;
-    if (clamped.x + clamped.w > view.vbW) clamped.x = view.vbW - clamped.w;
-    if (clamped.y + clamped.h > view.vbH) clamped.y = view.vbH - clamped.h;
+    // Вычисляем центр выбранной области
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // Начальные размеры viewBox с padding
+    // Учитываем, что увеличение происходит больше по горизонтали, чем по вертикали
+    // Для всех регионов используем одинаковый вертикальный padding multiplier
+    const verticalPadMultiplier = 0.7; // Уменьшаем вертикальный padding на 30% для всех регионов
+    let vw = (w + pad * 2) * zoomFactor;
+    let vh = (h + pad * 2 * verticalPadMultiplier) * zoomFactor;
+
+    // Адаптируем viewBox под пропорции контейнера, чтобы избежать растяжения
+    if (svgSize.w > 0 && svgSize.h > 0) {
+      const containerAspect = svgSize.w / svgSize.h;
+      const selectedAspect = vw / vh;
+
+      if (selectedAspect > containerAspect) {
+        // Выбранная область шире контейнера - увеличиваем высоту viewBox
+        vh = vw / containerAspect;
+      } else {
+        // Выбранная область уже контейнера - увеличиваем ширину viewBox
+        // Для всех регионов применяем одинаковую компенсацию для горизонтального увеличения
+        const horizontalScaleFactor = 1.2; // Увеличиваем ширину на 20% для компенсации большего горизонтального увеличения
+        vw = vh * containerAspect * horizontalScaleFactor;
+      }
+    }
+    
+    // Создаем viewBox с центром на выбранной области
+    // Смещаем центр вверх, чтобы регион был выше на карте
+    // Увеличиваем координату Y viewBox, чтобы регион поднялся выше
+    const verticalOffset = 0.25; // Смещение центра вверх на 25% высоты viewBox
+    let clamped: ViewBox = {
+      x: centerX - vw / 2,
+      y: centerY - vh / 2 + vh * verticalOffset, // Увеличиваем Y, чтобы поднять регион выше
+      w: vw,
+      h: vh,
+    };
+
+    // Приоритетная логика центрирования: сначала центрируем на выбранной области
+    // Центрируем viewBox на выбранной области без учета границ, со смещением вверх
+    clamped.x = centerX - clamped.w / 2;
+    clamped.y = centerY - clamped.h / 2 + clamped.h * verticalOffset; // Увеличиваем Y, чтобы поднять регион выше
+    
+    // Затем корректируем только если viewBox выходит за пределы карты
+    // Но стараемся сохранить центр видимым
+    if (clamped.w <= view.vbW) {
+      // ViewBox уже карты - корректируем только границы
+      if (clamped.x < 0) {
+        clamped.x = 0;
+      } else if (clamped.x + clamped.w > view.vbW) {
+        clamped.x = view.vbW - clamped.w;
+      }
+    } else {
+      // ViewBox шире карты - обрезаем, но центрируем на выбранной области
+      clamped.w = view.vbW;
+      clamped.x = Math.max(0, Math.min(centerX - clamped.w / 2, view.vbW - clamped.w));
+    }
+    
+    if (clamped.h <= view.vbH) {
+      // ViewBox ниже карты - корректируем только границы
+      if (clamped.y < 0) {
+        clamped.y = 0;
+      } else if (clamped.y + clamped.h > view.vbH) {
+        clamped.y = view.vbH - clamped.h;
+      }
+    } else {
+      // ViewBox выше карты - обрезаем, но центрируем на выбранной области
+      clamped.h = view.vbH;
+      clamped.y = Math.max(0, Math.min(centerY - clamped.h / 2, view.vbH - clamped.h));
+    }
+    
+    // Финальная проверка: убеждаемся, что центр выбранной области всегда виден
+    // Это критично, если после всех корректировок центр не виден
+    if (centerX < clamped.x || centerX > clamped.x + clamped.w) {
+      clamped.x = Math.max(0, Math.min(centerX - clamped.w / 2, view.vbW - clamped.w));
+    }
+    if (centerY < clamped.y || centerY > clamped.y + clamped.h) {
+      // Сохраняем смещение вверх при корректировке
+      clamped.y = Math.max(0, Math.min(centerY - clamped.h / 2 + clamped.h * verticalOffset, view.vbH - clamped.h));
+    }
 
     if (!isFinite(clamped.x) || !isFinite(clamped.y) || clamped.w <= 0 || clamped.h <= 0) return fullVB;
 
     return clamped;
-  }, [selectedRegionIds, paths, view, fullVB]);
+  }, [selectedRegionIds, paths, view, fullVB, svgSize]);
 
   useEffect(() => {
     if (fullVB && !currentVB) setCurrentVB(fullVB);
@@ -289,6 +399,10 @@ export function RussiaRegionsMapSvg({
 
   const isOverview = !selectedRegionIds?.length;
 
+  // Для общего вида используем "none" чтобы карта растягивалась по вертикали без сохранения пропорций
+  // Для выбранных регионов тоже используем "none", так как viewBox уже адаптирован под пропорции контейнера
+  const preserveAspectRatioValue = "none";
+
   if (error) {
     return (
       <div className="h-full w-full flex items-center justify-center text-xs text-red-200">
@@ -311,7 +425,7 @@ export function RussiaRegionsMapSvg({
         ref={svgRef}
         className="w-full h-full"
         viewBox={vbToString(currentVB)}
-        preserveAspectRatio={isOverview ? "none" : "xMidYMid meet"}
+        preserveAspectRatio={preserveAspectRatioValue}
       >
         <g>
           {paths.map(({ id, name, d }) => {

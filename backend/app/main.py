@@ -1,33 +1,49 @@
 from pathlib import Path
 import mimetypes
+import logging
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1 import admin_users
 from app.api.v1.admin_settings import router as admin_settings_router
 from app.api.v1.routes.auth import router as auth_router
 from app.core.bootstrap import require_bootstrap_completed
+from app.core.exceptions import (
+    validation_exception_handler,
+    database_exception_handler,
+    general_exception_handler,
+)
 from app.routers.users import router as users_router
 from app.api.maps import router as maps_router
 from app.api.regions import router as regions_router
 from app.api.admin_regions_import import router as admin_regions_router
 
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Zone Monitoring",
     version="0.1.0",
+    description="Система мониторинга зон с картами и событиями",
 )
 
-@app.get("/ping")
-def ping():
-    return {"ok": True}
+# Обработчики исключений
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(SQLAlchemyError, database_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # TODO: ограничить для продакшена
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +52,7 @@ app.add_middleware(
 
 @app.get("/ping", tags=["default"])
 def ping():
+    """Health check endpoint."""
     return {"status": "ok"}
 
 

@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
-from app.core.db import Base
+from app.db.session import Base
 
 
 class Map(Base):

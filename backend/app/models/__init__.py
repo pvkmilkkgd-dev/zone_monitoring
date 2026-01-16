@@ -1,4 +1,4 @@
-from app.core.db import Base  # noqa
+from app.db.session import Base  # noqa
 
 from .user import User
 from .map import Map
