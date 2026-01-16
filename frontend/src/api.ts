@@ -1,4 +1,4 @@
-﻿import { API_BASE_URL } from "./config";
+import { API_BASE_URL } from "./config";
 
 export interface UserDto {
   id: number;
@@ -169,6 +169,24 @@ export async function updateCurrentUser(data: {
       /* ignore */
     }
     throw new Error(message);
+  }
+
+  return resp.json();
+}
+
+export async function updateUserRole(userId: number, role: string): Promise<UserDto> {
+  const resp = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ role }),
+  });
+
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => null);
+    throw new Error(data?.detail || "Не удалось обновить роль пользователя");
   }
 
   return resp.json();

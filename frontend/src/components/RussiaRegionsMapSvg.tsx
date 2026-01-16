@@ -103,7 +103,12 @@ export function RussiaRegionsMapSvg({
     (async () => {
       try {
         setError(null);
-        const res = await fetch("/maps/ru/regions.geojson", { signal: ac.signal });
+        // Добавляем кеш-бастинг для обновления данных после загрузки нового региона
+        const cacheBuster = `?t=${Date.now()}`;
+        const res = await fetch(`/maps/ru/regions.geojson${cacheBuster}`, { 
+          signal: ac.signal,
+          cache: "no-cache"
+        });
         if (!res.ok) throw new Error(`GeoJSON HTTP ${res.status}`);
         const data = (await res.json()) as GeoJSONFeatureCollection;
         setFc(data);
@@ -254,11 +259,14 @@ export function RussiaRegionsMapSvg({
     
     // Определяем, мелкий ли регион (если занимает меньше 2% площади карты)
     const isSmallRegion = regionSizeRatio < 0.02;
+    // Определяем, большой ли регион (если занимает больше 3% площади карты)
+    // Для больших регионов применяем только фокусировку без приближения
+    const isLargeRegion = regionSizeRatio > 0.03;
     
-    // Для мелких регионов применяем больший zoom (уменьшаем viewBox)
-    // Но делаем это менее агрессивно, чтобы регион оставался видимым
-    // Для крупных регионов применяем такое же приближение, но очень маленькое
-    const zoomFactor = isSmallRegion ? 0.75 : 0.95; // Мелкие - 0.75, крупные - 0.95 (очень маленькое приближение)
+    // Для мелких регионов применяем большой zoom (уменьшаем viewBox)
+    // Для больших регионов применяем только фокусировку без приближения (zoomFactor = 1.0)
+    // Для средних регионов применяем небольшое приближение
+    const zoomFactor = isSmallRegion ? 0.75 : (isLargeRegion ? 1.0 : 0.95);
 
     // Используем динамический padding для лучшей видимости
     const pad = Math.max(18, Math.min(w, h) * 0.1); // Минимум 18, или 10% от меньшего размера
@@ -268,13 +276,23 @@ export function RussiaRegionsMapSvg({
     const centerY = (minY + maxY) / 2;
 
     // Начальные размеры viewBox с padding
-    // Учитываем, что увеличение происходит больше по горизонтали, чем по вертикали
-    // Для всех регионов используем одинаковый вертикальный padding multiplier
-    const verticalPadMultiplier = 0.7; // Уменьшаем вертикальный padding на 30% для всех регионов
-    let vw = (w + pad * 2) * zoomFactor;
-    let vh = (h + pad * 2 * verticalPadMultiplier) * zoomFactor;
+    // Для больших регионов используем только фокусировку без изменения размера
+    let vw: number;
+    let vh: number;
+    
+    if (isLargeRegion) {
+      // Для больших регионов: используем размер региона с минимальным padding, без приближения
+      vw = w + pad * 2;
+      vh = h + pad * 2 * 0.7; // Минимальный вертикальный padding
+    } else {
+      // Для мелких и средних регионов: применяем zoom с padding
+      const verticalPadMultiplier = 0.7; // Уменьшаем вертикальный padding на 30% для всех регионов
+      vw = (w + pad * 2) * zoomFactor;
+      vh = (h + pad * 2 * verticalPadMultiplier) * zoomFactor;
+    }
 
     // Адаптируем viewBox под пропорции контейнера, чтобы избежать растяжения
+    // Для больших регионов НЕ применяем horizontalScaleFactor
     if (svgSize.w > 0 && svgSize.h > 0) {
       const containerAspect = svgSize.w / svgSize.h;
       const selectedAspect = vw / vh;
@@ -282,9 +300,9 @@ export function RussiaRegionsMapSvg({
       if (selectedAspect > containerAspect) {
         // Выбранная область шире контейнера - увеличиваем высоту viewBox
         vh = vw / containerAspect;
-      } else {
+      } else if (!isLargeRegion) {
         // Выбранная область уже контейнера - увеличиваем ширину viewBox
-        // Для всех регионов применяем одинаковую компенсацию для горизонтального увеличения
+        // Для больших регионов НЕ применяем эту компенсацию
         const horizontalScaleFactor = 1.2; // Увеличиваем ширину на 20% для компенсации большего горизонтального увеличения
         vw = vh * containerAspect * horizontalScaleFactor;
       }

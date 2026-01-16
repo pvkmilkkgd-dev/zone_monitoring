@@ -1,4 +1,4 @@
-﻿from typing import List
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -44,10 +44,8 @@ def create_user(
 
     user = User(
         username=payload.username,
-        full_name=payload.full_name,
         role=payload.role,
-        is_active=True,
-        hashed_password=hash_password(payload.password),
+        password_hash=hash_password(payload.password),
     )
     db.add(user)
     db.commit()
@@ -87,7 +85,7 @@ def reset_user_password(
             status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
         )
 
-    user.hashed_password = hash_password(payload.new_password)
+    user.password_hash = hash_password(payload.new_password)
     db.commit()
     db.refresh(user)
     return user

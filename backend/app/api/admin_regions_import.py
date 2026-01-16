@@ -52,40 +52,106 @@ async def import_region_geojson(
 
     geom_json = json.dumps(geom, ensure_ascii=False)
 
+    # Используем правильную структуру таблицы: geom, geom_simplified, bbox, name_original
     if code:
         q = text(
             """
-            INSERT INTO regions (id, name, code, geom)
-            VALUES (gen_random_uuid(), :name, :code,
-                    ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326))
+            INSERT INTO regions (id, name, code, name_original, geom, geom_simplified, bbox, created_at, updated_at, is_active)
+            VALUES (
+                gen_random_uuid(), 
+                :name, 
+                :code,
+                :name_original,
+                ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326),
+                ST_Multi(
+                    ST_CollectionExtract(
+                        ST_SimplifyPreserveTopology(
+                            ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326)),
+                            0.05
+                        ),
+                        3
+                    )
+                ),
+                ST_Envelope(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326))),
+                NOW(),
+                NOW(),
+                true
+            )
             ON CONFLICT (code)
             DO UPDATE SET
                 name = EXCLUDED.name,
-                geom = EXCLUDED.geom
+                name_original = EXCLUDED.name_original,
+                geom = EXCLUDED.geom,
+                geom_simplified = EXCLUDED.geom_simplified,
+                bbox = EXCLUDED.bbox,
+                updated_at = NOW()
             RETURNING id::text as id, name, code;
         """
         )
-        row = db.execute(q, {"name": name, "code": code, "geom": geom_json}).mappings().first()
+        row = db.execute(
+            q, 
+            {
+                "name": name, 
+                "code": code, 
+                "name_original": name,
+                "geom": geom_json
+            }
+        ).mappings().first()
     else:
         q = text(
             """
             WITH up AS (
               SELECT id FROM regions WHERE name = :name LIMIT 1
             )
-            INSERT INTO regions (id, name, geom)
-            SELECT gen_random_uuid(), :name,
-                   ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326)
+            INSERT INTO regions (id, name, name_original, geom, geom_simplified, bbox, created_at, updated_at, is_active)
+            SELECT 
+                gen_random_uuid(), 
+                :name,
+                :name_original,
+                ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326),
+                ST_Multi(
+                    ST_CollectionExtract(
+                        ST_SimplifyPreserveTopology(
+                            ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326)),
+                            0.05
+                        ),
+                        3
+                    )
+                ),
+                ST_Envelope(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326))),
+                NOW(),
+                NOW(),
+                true
             WHERE NOT EXISTS (SELECT 1 FROM up)
             RETURNING id::text as id, name, code
         """
         )
-        row = db.execute(q, {"name": name, "geom": geom_json}).mappings().first()
+        row = db.execute(
+            q, 
+            {
+                "name": name, 
+                "name_original": name,
+                "geom": geom_json
+            }
+        ).mappings().first()
 
         if row is None:
             q2 = text(
                 """
                 UPDATE regions
-                SET geom = ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326)
+                SET 
+                    geom = ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326),
+                    geom_simplified = ST_Multi(
+                        ST_CollectionExtract(
+                            ST_SimplifyPreserveTopology(
+                                ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326)),
+                                0.05
+                            ),
+                            3
+                        )
+                    ),
+                    bbox = ST_Envelope(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4326))),
+                    updated_at = NOW()
                 WHERE name = :name
                 RETURNING id::text as id, name, code;
             """

@@ -22,7 +22,35 @@ export function AdminSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [regions, setRegions] = useState<Region[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(false);
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [mapKey, setMapKey] = useState(0); // Ключ для принудительного обновления карты
   const deptRef = useRef<HTMLTextAreaElement>(null);
+
+  // Автоматическое изменение высоты textarea
+  useEffect(() => {
+    const textarea = deptRef.current;
+    if (textarea) {
+      // Вычисляем высоту одной строки с учетом padding
+      const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight);
+      const paddingTop = parseFloat(getComputedStyle(textarea).paddingTop);
+      const paddingBottom = parseFloat(getComputedStyle(textarea).paddingBottom);
+      const singleLineHeight = lineHeight + paddingTop + paddingBottom;
+      
+      // Сбрасываем высоту, чтобы получить правильный scrollHeight
+      textarea.style.height = "auto";
+      // Получаем необходимую высоту
+      const scrollHeight = textarea.scrollHeight;
+      
+      // Устанавливаем высоту только если нужна вторая строка (больше одной строки)
+      // Если scrollHeight больше или равен высоте одной строки + небольшой запас, используем scrollHeight
+      // Иначе оставляем высоту одной строки
+      if (scrollHeight > singleLineHeight) {
+        textarea.style.height = `${scrollHeight}px`;
+      } else {
+        textarea.style.height = `${singleLineHeight}px`;
+      }
+    }
+  }, [departmentName]);
 
   useEffect(() => {
     const load = async () => {
@@ -115,7 +143,8 @@ export function AdminSettingsPage() {
       });
       setDepartmentName(cleanedName);
 
-      alert("Настройки сохранены");
+      setNotification({ type: "success", message: "Настройки успешно сохранены" });
+      setTimeout(() => setNotification(null), 3000);
     } catch (e: any) {
       console.error(e);
       setError(e.message || "Ошибка при сохранении настроек");
@@ -157,7 +186,13 @@ export function AdminSettingsPage() {
               >
                 Регион и управление
               </button>
-              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/admin/users";
+                }}
+                className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
                 Пользователи
               </button>
               <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
@@ -175,11 +210,11 @@ export function AdminSettingsPage() {
                     <label className="block text-sm font-medium text-slate-100">Название управления</label>
 
                     <div
-                      className="relative min-h-[40px] rounded-2xl border border-slate-700/70 bg-slate-900/80 cursor-text"
+                      className="relative rounded-2xl border border-slate-700/70 bg-slate-900/80 cursor-text flex items-center"
                       onClick={() => deptRef.current?.focus()}
                     >
                       {departmentName.length === 0 && (
-                        <div className="pointer-events-none absolute inset-0 px-3 py-2 text-xs text-slate-500">
+                        <div className="pointer-events-none absolute inset-0 px-3 py-2 text-xs text-slate-500 flex items-center">
                           Например: Отдел мониторинга и реагирования, УОМЗ г. Первоуральск
                         </div>
                       )}
@@ -190,7 +225,8 @@ export function AdminSettingsPage() {
                         onChange={(e) => setDepartmentName(e.target.value)}
                         rows={1}
                         onBlur={() => setDepartmentName((v) => v.trim())}
-                        className="w-full min-h-[40px] bg-transparent px-3 py-2 text-sm text-slate-50 focus:outline-none resize-none overflow-y-auto"
+                        className="w-full bg-transparent px-3 py-2 text-sm text-slate-50 focus:outline-none resize-none overflow-hidden leading-normal"
+                        style={{ height: "auto", minHeight: "2.5rem" }}
                       />
                     </div>
 
@@ -281,9 +317,12 @@ export function AdminSettingsPage() {
                               const list = (await res.json()) as Region[];
                               setRegions(list);
                             }
-                            alert("Регион загружен");
+                            setNotification({ type: "success", message: "Регион успешно загружен. Карта обновлена." });
+                            setMapKey((prev) => prev + 1); // Принудительно обновляем карту
+                            setTimeout(() => setNotification(null), 3000);
                           } catch (err: any) {
-                            alert(err?.message || "Ошибка загрузки региона");
+                            setNotification({ type: "error", message: err?.message || "Ошибка загрузки региона" });
+                            setTimeout(() => setNotification(null), 5000);
                           } finally {
                             e.currentTarget.value = "";
                           }
@@ -357,6 +396,7 @@ export function AdminSettingsPage() {
               </div>
               <div className="w-full h-[360px]">
                 <RussiaRegionsMapSvg
+                  key={mapKey}
                   selectedRegionIds={selectedRegionIds}
                   padding={10}
                   resolveRegionId={(name) => regionNameToId.get(normRegionName(name))}
@@ -367,6 +407,66 @@ export function AdminSettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Модальное окно уведомлений */}
+      {notification && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setNotification(null)}
+        >
+          <div 
+            className="relative rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-2xl shadow-sky-900/40 max-w-md w-full p-6 backdrop-blur"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setNotification(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors"
+              aria-label="Закрыть"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="flex items-start gap-4">
+              {notification.type === "success" ? (
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              ) : (
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/20 border border-red-400/30 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
+              )}
+              <div className="flex-1 pt-1">
+                <h3 className={`text-lg font-semibold mb-2 ${
+                  notification.type === "success" ? "text-sky-300" : "text-red-300"
+                }`}>
+                  {notification.type === "success" ? "Успешно" : "Ошибка"}
+                </h3>
+                <p className="text-slate-200 text-sm leading-relaxed">
+                  {notification.message}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setNotification(null)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  notification.type === "success"
+                    ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30"
+                    : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
+                }`}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
