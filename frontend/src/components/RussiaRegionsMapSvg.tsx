@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type LonLat = [number, number];
 
@@ -21,14 +21,15 @@ type GeoJSONFeature = {
 };
 
 type Props = {
-  selectedRegionIds: string[];
+  selectedRegionIds: string[]; // UUID[]
   onRegionClick?: (regionId: string) => void;
-  resolveRegionId?: (regionName: string) => string | undefined;
+  resolveRegionId?: (regionName: string) => string | undefined; // name -> UUID
   padding?: number;
 };
 
 type ViewBox = { x: number; y: number; w: number; h: number };
 const vbToString = (v: ViewBox) => `${v.x} ${v.y} ${v.w} ${v.h}`;
+
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -68,10 +69,33 @@ function buildPath(geom: GeoJSONFeature["geometry"], mapXY: (pt: LonLat) => [num
   }
 }
 
-export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveRegionId, padding = 10 }: Props) {
+export function RussiaRegionsMapSvg({
+  selectedRegionIds,
+  onRegionClick,
+  resolveRegionId,
+  padding = 10,
+}: Props) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
   const [fc, setFc] = useState<GeoJSONFeatureCollection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentVB, setCurrentVB] = useState<ViewBox | null>(null);
+  const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr) return;
+      setSvgSize({ w: cr.width, h: cr.height });
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -94,10 +118,10 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
 
   const bbox = useMemo(() => {
     if (!fc) return null;
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
 
     for (const f of fc.features) {
       walkCoords(f.geometry, (pt) => {
@@ -108,7 +132,6 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
         if (y > maxY) maxY = y;
       });
     }
-
     if (!isFinite(minX)) return null;
     return { minX, minY, maxX, maxY };
   }, [fc]);
@@ -131,19 +154,19 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
   const paths = useMemo(() => {
     if (!fc || !view || !bbox) return [];
 
-    const built = fc.features
+    return fc.features
       .map((f) => {
         const name = String(f.properties?.name ?? "");
-        const rawId = String(f.properties?.id ?? name);
+        const fallbackId = String(f.properties?.id ?? name);
         const resolvedId = resolveRegionId?.(name);
-        const finalId = resolvedId ?? rawId;
+        const id = resolvedId ?? fallbackId; // ожидаем UUID
 
         const d = buildPath(f.geometry, view.mapXY);
 
-        let fMinX = Infinity,
-          fMinY = Infinity,
-          fMaxX = -Infinity,
-          fMaxY = -Infinity;
+        let fMinX = Infinity;
+        let fMinY = Infinity;
+        let fMaxX = -Infinity;
+        let fMaxY = -Infinity;
 
         walkCoords(f.geometry, (pt) => {
           const [x, y] = project(pt);
@@ -159,18 +182,14 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
         const hasBox = isFinite(fMinX) && isFinite(fMinY) && isFinite(fMaxX) && isFinite(fMaxY);
 
         return {
-          id: finalId,
+          id,
           name,
           d,
           box: hasBox ? { minX: fMinX, minY: fMinY, maxX: fMaxX, maxY: fMaxY } : null,
         };
       })
       .filter((p) => p.name && p.d);
-
-    console.log("path ids:", built.slice(0, 5).map((p) => p.id));
-    console.log("selected ids:", selectedRegionIds);
-    return built;
-  }, [fc, view, bbox, padding, resolveRegionId, selectedRegionIds]);
+  }, [fc, view, bbox, padding, resolveRegionId]);
 
   const fullVB = useMemo<ViewBox | null>(() => {
     if (!view) return null;
@@ -187,10 +206,10 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
 
     if (selectedBoxes.length === 0) return fullVB;
 
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
 
     for (const b of selectedBoxes) {
       if (b.minX < minX) minX = b.minX;
@@ -203,16 +222,10 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     const w = maxX - minX;
     const h = maxY - minY;
 
-    let x = minX - pad;
-    let y = minY - pad;
-    let vw = w + pad * 2;
-    let vh = h + pad * 2;
-
-    const k = 1.12;
-    vw *= k;
-    vh *= k;
-    x -= (vw - (w + pad * 2)) / 2;
-    y -= (vh - (h + pad * 2)) / 2;
+    const x = minX - pad;
+    const y = minY - pad;
+    const vw = w + pad * 2;
+    const vh = h + pad * 2;
 
     const clamped: ViewBox = { x, y, w: vw, h: vh };
 
@@ -221,9 +234,7 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     if (clamped.x + clamped.w > view.vbW) clamped.x = view.vbW - clamped.w;
     if (clamped.y + clamped.h > view.vbH) clamped.y = view.vbH - clamped.h;
 
-    if (!isFinite(clamped.x) || !isFinite(clamped.y) || clamped.w <= 0 || clamped.h <= 0) {
-      return fullVB;
-    }
+    if (!isFinite(clamped.x) || !isFinite(clamped.y) || clamped.w <= 0 || clamped.h <= 0) return fullVB;
 
     return clamped;
   }, [selectedRegionIds, paths, view, fullVB]);
@@ -276,6 +287,8 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
     return () => cancelAnimationFrame(raf);
   }, [targetVB]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const isOverview = !selectedRegionIds?.length;
+
   if (error) {
     return (
       <div className="h-full w-full flex items-center justify-center text-xs text-red-200">
@@ -293,37 +306,51 @@ export function RussiaRegionsMapSvg({ selectedRegionIds, onRegionClick, resolveR
   }
 
   return (
-    <svg
-      className="w-full h-full"
-      viewBox={vbToString(currentVB)}
-      preserveAspectRatio="none"
-      shapeRendering="geometricPrecision"
-    >
-      <g>
-        {paths.map(({ id, name, d }) => {
-          const known = Boolean(id);
-          const active = known && selectedRegionIds.includes(id);
-          return (
-            <path
-              key={id || name}
-              d={d}
-              fill={active ? "rgba(56,189,248,0.18)" : "rgba(148,163,184,0.06)"}
-              stroke={active ? "rgba(56,189,248,0.95)" : "rgba(148,163,184,0.80)"}
-              strokeWidth={0.22}
-              vectorEffect="non-scaling-stroke"
-              strokeLinecap="square"
-              strokeLinejoin="miter"
-              fillRule="evenodd"
-              className={known ? "cursor-pointer transition" : "cursor-default"}
-              onClick={() => {
-                if (known) onRegionClick?.(id);
-              }}
-            >
-              <title>{name}</title>
-            </path>
-          );
-        })}
-      </g>
-    </svg>
+    <div ref={hostRef} className="w-full h-full">
+      <svg
+        ref={svgRef}
+        className="w-full h-full"
+        viewBox={vbToString(currentVB)}
+        preserveAspectRatio={isOverview ? "none" : "xMidYMid meet"}
+      >
+        <g>
+          {paths.map(({ id, name, d }) => {
+            const known = Boolean(id);
+            const active = known && selectedRegionIds.includes(id);
+
+            return (
+              <path
+                key={id || name}
+                d={d}
+                vectorEffect="non-scaling-stroke"
+                fill={
+                  !known
+                    ? "rgba(148,163,184,0.06)"
+                    : active
+                    ? "rgba(56,189,248,0.25)"
+                    : "rgba(148,163,184,0.10)"
+                }
+                stroke={
+                  !known
+                    ? "rgba(148,163,184,0.25)"
+                    : active
+                    ? "rgba(56,189,248,0.9)"
+                    : "rgba(148,163,184,0.55)"
+                }
+                strokeWidth={0.25}
+                shapeRendering="geometricPrecision"
+                fillRule="evenodd"
+                className={known ? "cursor-pointer transition" : "cursor-default"}
+                onClick={() => {
+                  if (known) onRegionClick?.(id);
+                }}
+              >
+                <title>{name}</title>
+              </path>
+            );
+          })}
+        </g>
+      </svg>
+    </div>
   );
 }

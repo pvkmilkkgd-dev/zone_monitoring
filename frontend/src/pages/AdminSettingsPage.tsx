@@ -31,7 +31,6 @@ export function AdminSettingsPage() {
         setError(null);
 
         const data = await fetchSystemSettings();
-        console.log("settings from API =", data);
         if (data) {
           setDepartmentName(data.department_name || "");
           setSelectedRegionIds(Array.isArray(data.region_ids) ? data.region_ids.map(String) : []);
@@ -76,8 +75,6 @@ export function AdminSettingsPage() {
       name: regionIdToName.get(id) ?? id,
     }));
   }, [selectedRegionIds, regionIdToName]);
-
-  console.log("departmentName NOW =", JSON.stringify(departmentName));
 
   const toggleRegionId = (id: string) => {
     setSelectedRegionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -237,7 +234,7 @@ export function AdminSettingsPage() {
                       )}
                     </div>
 
-                    {/* СКРОЛБОКС СО СПИСКОМ РЕГИОНОВ */}
+                    {/* Список регионов */}
                     <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
                       <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
                         {regionsLoading ? (
@@ -362,13 +359,8 @@ export function AdminSettingsPage() {
                 <RussiaRegionsMapSvg
                   selectedRegionIds={selectedRegionIds}
                   padding={10}
-                  resolveRegionId={(geoName) => {
-                    const n = normRegionName(geoName);
-                    return regionNameToId.get(n) ?? regionNameToId.get(geoName);
-                  }}
-                  onRegionClick={(regionId) => {
-                    toggleRegionId(regionId);
-                  }}
+                  resolveRegionId={(name) => regionNameToId.get(normRegionName(name))}
+                  onRegionClick={(regionId) => toggleRegionId(regionId)}
                 />
               </div>
             </div>
