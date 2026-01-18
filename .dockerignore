@@ -1,0 +1,13 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/node_modules
+**/.vite
+**/dist
+.git
+.gitignore
+*.md
+backup
+.vscode
+.idea
+*.log
