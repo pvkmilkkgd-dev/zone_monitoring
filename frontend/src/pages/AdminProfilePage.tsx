@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchCurrentUser, updateCurrentUser } from "../api";
+import { requireAuth, handleAuthError } from "../utils/auth";
 
 export function AdminProfilePage() {
   const [username, setUsername] = useState("");
@@ -12,6 +13,8 @@ export function AdminProfilePage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!requireAuth()) return;
+
     const load = async () => {
       try {
         setLoading(true);
@@ -20,6 +23,7 @@ export function AdminProfilePage() {
         setUsername(me.username ?? "");
       } catch (e: any) {
         console.error(e);
+        if (handleAuthError(e)) return;
         setError(e.message || "Ошибка загрузки профиля");
       } finally {
         setLoading(false);

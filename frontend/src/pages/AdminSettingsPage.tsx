@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSystemSettings, updateSystemSettings } from "../api";
 import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
+import { requireAuth, handleAuthError, logout } from "../utils/auth";
 
 type Region = { id: string; name: string };
 
@@ -53,6 +54,8 @@ export function AdminSettingsPage() {
   }, [departmentName]);
 
   useEffect(() => {
+    if (!requireAuth()) return;
+
     const load = async () => {
       try {
         setLoading(true);
@@ -71,6 +74,7 @@ export function AdminSettingsPage() {
         setRegions(list);
       } catch (e: any) {
         console.error(e);
+        if (handleAuthError(e)) return;
         setError(e.message || "Ошибка загрузки настроек");
       } finally {
         setRegionsLoading(false);
@@ -165,12 +169,21 @@ export function AdminSettingsPage() {
           </div>
 
           <div className="relative space-y-6">
-            <div>
-              <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Настройки системы</h1>
-              <p className="mt-2 text-sm text-slate-300/90 max-w-xl">
-                Внутренний сервис мониторинга обстановки. Укажите название вашего управления и выберите один или
-                несколько регионов, за которые отвечает система мониторинга.
-              </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Настройки системы</h1>
+                <p className="mt-2 text-sm text-slate-300/90 max-w-xl">
+                  Внутренний сервис мониторинга обстановки. Укажите название вашего управления и выберите один или
+                  несколько регионов, за которые отвечает система мониторинга.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                className="shrink-0 px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+              >
+                Выход
+              </button>
             </div>
 
             {error && (
@@ -195,7 +208,13 @@ export function AdminSettingsPage() {
               >
                 Пользователи
               </button>
-              <button type="button" className="px-4 py-1.5 rounded-full text-slate-400" disabled>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/admin/zones";
+                }}
+                className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
                 Зоны и устройства
               </button>
             </div>

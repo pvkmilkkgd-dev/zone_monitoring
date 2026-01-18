@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -122,6 +122,14 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Проверка: если пользователь уже авторизован, перенаправляем на админ панель
+  useEffect(() => {
+    const token = localStorage.getItem("zone_jwt");
+    if (token) {
+      window.location.href = "/admin";
+    }
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -158,7 +166,10 @@ export default function LoginPage() {
 
       const data = await resp.json();
       if (data?.access_token) {
-        localStorage.setItem("access_token", data.access_token);
+        localStorage.setItem("zone_jwt", data.access_token);
+        if (data?.role) {
+          localStorage.setItem("zone_role", data.role);
+        }
       }
 
       window.location.href = "/admin";

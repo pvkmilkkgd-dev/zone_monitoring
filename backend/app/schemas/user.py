@@ -1,14 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class UserBase(BaseModel):
     username: str
-    full_name: Optional[str] = None
-    role: str = "operator"
-    is_active: bool = True
+    role: str = "viewer"
 
 
 class UserRead(UserBase):
@@ -17,8 +15,11 @@ class UserRead(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserPublic(UserBase):
+class UserPublic(BaseModel):
     id: int
+    username: str
+    full_name: Optional[str] = None
+    role: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -26,9 +27,18 @@ class UserPublic(UserBase):
 
 class UserCreateByAdmin(BaseModel):
     username: str
-    password: str
+    password: str = Field(..., min_length=6, max_length=128)
     full_name: Optional[str] = None
     role: str = "operator"
+    
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError('Пароль должен содержать минимум 6 символов')
+        if len(v) > 128:
+            raise ValueError('Пароль слишком длинный (максимум 128 символов)')
+        return v
 
 
 class UserRoleUpdate(BaseModel):
@@ -36,7 +46,21 @@ class UserRoleUpdate(BaseModel):
 
 
 class UserPasswordReset(BaseModel):
-    new_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+    
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError('Пароль должен содержать минимум 6 символов')
+        if len(v) > 128:
+            raise ValueError('Пароль слишком длинный (максимум 128 символов)')
+        return v
+
+
+class UserUpdateByAdmin(BaseModel):
+    username: Optional[str] = None
+    full_name: Optional[str] = None
 
 
 class UserSelfUpdate(BaseModel):

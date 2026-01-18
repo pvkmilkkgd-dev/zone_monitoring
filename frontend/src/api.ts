@@ -5,7 +5,6 @@ export interface UserDto {
   username: string;
   full_name?: string | null;
   role: string;
-  is_active: boolean;
   created_at: string;
 }
 
@@ -27,7 +26,7 @@ export interface SystemSettingsUpdatePayload {
 }
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("access_token") || localStorage.getItem("accessToken");
+  const token = localStorage.getItem("zone_jwt") || localStorage.getItem("access_token") || localStorage.getItem("accessToken");
   if (!token) {
     return {};
   }
@@ -101,7 +100,22 @@ export async function fetchUsers(): Promise<UserDto[]> {
   });
 
   if (!resp.ok) {
-    throw new Error("Не удалось загрузить пользователей");
+    const text = await resp.text().catch(() => "");
+    let errorMessage = "Не удалось загрузить пользователей";
+    try {
+      const json = JSON.parse(text);
+      if (json.detail) {
+        errorMessage = json.detail;
+      }
+    } catch {
+      // Если не JSON, используем текст или стандартное сообщение
+      if (text) {
+        errorMessage = `${errorMessage}: ${text}`;
+      } else {
+        errorMessage = `${errorMessage} (HTTP ${resp.status})`;
+      }
+    }
+    throw new Error(errorMessage);
   }
 
   return resp.json();
@@ -187,6 +201,45 @@ export async function updateUserRole(userId: number, role: string): Promise<User
   if (!resp.ok) {
     const data = await resp.json().catch(() => null);
     throw new Error(data?.detail || "Не удалось обновить роль пользователя");
+  }
+
+  return resp.json();
+}
+
+export async function updateUserByAdmin(
+  userId: number,
+  payload: { username?: string; full_name?: string | null }
+): Promise<UserDto> {
+  const resp = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => null);
+    throw new Error(data?.detail || "Не удалось обновить данные пользователя");
+  }
+
+  return resp.json();
+}
+
+export async function resetUserPassword(userId: number, newPassword: string): Promise<UserDto> {
+  const resp = await fetch(`${API_BASE_URL}/admin/users/${userId}/password`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => null);
+    throw new Error(data?.detail || "Не удалось изменить пароль пользователя");
   }
 
   return resp.json();

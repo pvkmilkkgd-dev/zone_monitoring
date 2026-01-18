@@ -16,3 +16,4 @@ class Map(Base):
 
     zones = relationship("Zone", back_populates="map", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="map", cascade="all, delete-orphan")
+    administrative_zones = relationship("AdministrativeZone", back_populates="map", cascade="all, delete-orphan")

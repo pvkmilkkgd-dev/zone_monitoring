@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { requireAuth, logout } from "../../utils/auth";
 
 type Region = { id: number; name: string };
 
@@ -8,6 +9,8 @@ export function RegionsAdmin() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!requireAuth()) return;
+
     let alive = true;
 
     (async () => {
@@ -16,7 +19,13 @@ export function RegionsAdmin() {
         setErr(null);
 
         const res = await fetch("/api/regions");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            logout();
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
         const json = (await res.json()) as Region[];
 
         if (alive) setData(json);

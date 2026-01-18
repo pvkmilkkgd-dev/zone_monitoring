@@ -32,6 +32,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    Проверяет силу пароля.
+    Возвращает (is_valid, error_message).
+    """
+    if len(password) < 6:
+        return False, "Пароль должен содержать минимум 6 символов"
+    
+    if len(password) > 128:
+        return False, "Пароль слишком длинный (максимум 128 символов)"
+    
+    # Проверка на слишком простые пароли
+    common_passwords = ["password", "123456", "user", "admin", "qwerty", "12345678"]
+    if password.lower() in common_passwords:
+        return False, "Пароль слишком простой. Используйте более сложный пароль"
+    
+    return True, ""
+
+
 def create_access_token(
     subject: str, expires_delta: Optional[timedelta] = None
 ) -> str:

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         default="postgresql+psycopg2://zone_user:Ural196User!@localhost:5432/zone_monitoring",
         description="SQLAlchemy-style database URL",
     )
+    DEBUG: bool = Field(default=False, description="Режим отладки")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

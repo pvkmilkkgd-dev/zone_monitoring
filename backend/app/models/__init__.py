@@ -5,5 +5,6 @@ from .map import Map
 from .zone import Zone
 from .event import Event
 from .system_settings import SystemSettings
+from .administrative_zone import AdministrativeZone
 
-__all__ = ["Base", "User", "Map", "Zone", "Event", "SystemSettings"]
+__all__ = ["Base", "User", "Map", "Zone", "Event", "SystemSettings", "AdministrativeZone"]

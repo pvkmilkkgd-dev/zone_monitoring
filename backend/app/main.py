@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.v1 import admin_users
 from app.api.v1.admin_settings import router as admin_settings_router
 from app.api.v1.routes.auth import router as auth_router
+from app.api.v1.routes.administrative_zones import router as administrative_zones_router
 from app.core.bootstrap import require_bootstrap_completed
 from app.core.exceptions import (
     validation_exception_handler,
@@ -68,6 +69,7 @@ app.include_router(admin_users.router)
 app.include_router(maps_router)
 app.include_router(regions_router)
 app.include_router(admin_regions_router, prefix="/api/v1")
+app.include_router(administrative_zones_router, prefix="/api/v1")
 
 # --- FRONT (Vite build) ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
