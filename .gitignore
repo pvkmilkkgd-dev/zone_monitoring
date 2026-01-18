@@ -38,3 +38,7 @@ node_modules/
 
 # Build artifacts (если где-то появится dist вне frontend)
 dist/
+
+# Backups
+backup/
+*.zip
