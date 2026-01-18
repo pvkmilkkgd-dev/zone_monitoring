@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchUsers, createUserByAdmin, updateUserRole, resetUserPassword, updateUserByAdmin, UserDto } from "../api";
+import { fetchUsers, createUserByAdmin, updateUserRole, resetUserPassword, updateUserByAdmin, UserDto } from "../api/admin";
 import { requireAuth, handleAuthError, logout } from "../utils/auth";
 
 type UserRole = "admin" | "editor" | "viewer";

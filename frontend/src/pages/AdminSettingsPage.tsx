@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchSystemSettings, updateSystemSettings } from "../api";
+import { fetchSystemSettings, updateSystemSettings } from "../api/admin";
 import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
 import { requireAuth, handleAuthError, logout } from "../utils/auth";
 

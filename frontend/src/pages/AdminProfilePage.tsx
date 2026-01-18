@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchCurrentUser, updateCurrentUser } from "../api";
+import { fetchCurrentUser, updateCurrentUser } from "../api/admin";
 import { requireAuth, handleAuthError } from "../utils/auth";
 
 export function AdminProfilePage() {

@@ -9,9 +9,9 @@ import {
   createAdministrativeZone,
   deleteAdministrativeZone,
   type AdministrativeZone,
-} from "../api/administrativeZones";
+} from "../api/administrative-zones";
 import { requireAuth, handleAuthError, logout } from "../utils/auth";
-import { fetchSystemSettings } from "../api";
+import { fetchSystemSettings } from "../api/admin";
 
 type Region = {
   id: string;
