@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -51,9 +51,29 @@ export function ZonesAndDevicesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Состояние для размеров контейнера карты (responsive)
+  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!requireAuth()) return;
     loadInitialData();
+  }, []);
+
+  // Отслеживаем изменение размеров контейнера карты
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) {
+        setMapSize({ width, height });
+      }
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
   }, []);
 
   // Функция для вычисления bounds из GeoJSON и установки правильного масштаба
@@ -421,15 +441,18 @@ export function ZonesAndDevicesPage() {
                 <div style={{ marginBottom: "0.5rem", fontSize: "0.875rem", color: "#cbd5e1" }}>
                   Регион: <strong>{regionName || "Загрузка..."}</strong>
                 </div>
-                <div style={{ width: "100%", height: "600px", overflow: "hidden", borderRadius: "0.5rem" }}>
+                <div 
+                  ref={mapContainerRef}
+                  style={{ width: "100%", height: "600px", overflow: "hidden", borderRadius: "0.5rem" }}
+                >
                   <ComposableMap
                     projection="geoMercator"
                     projectionConfig={mapConfig || {
                       scale: 3000,
                       center: [61.85, 58.18], // [longitude, latitude] - центр Свердловской области
                     }}
-                    width={800}
-                    height={600}
+                    width={mapSize.width}
+                    height={mapSize.height}
                     style={{ width: "100%", height: "100%" }}
                   >
                   <Geographies 

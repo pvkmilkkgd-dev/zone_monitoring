@@ -3,42 +3,39 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.coverage
+htmlcov/
 
 # Виртуальные окружения
 venv/
 .venv/
 env/
-.env/
 
-# Логи / покрытия
-*.log
-.coverage
-htmlcov/
-
-# --- Frontend / Node ---
-frontend/node_modules/
-frontend/dist/
+# --- Node ---
+node_modules/
+dist/
 *.tsbuildinfo
+
+# Vite cache
+.vite/
+.cache/
 
 # --- IDE ---
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # --- Секреты ---
 .env
 .env.*
 !.env.example
 
-# Vite cache
-frontend/.vite/
-frontend/.cache/
+# --- Системные файлы ---
+.DS_Store
+Thumbs.db
+*.log
 
-# Node (если вдруг node_modules окажется не только в frontend)
-node_modules/
-
-# Build artifacts (если где-то появится dist вне frontend)
-dist/
-
-# Backups
+# --- Прочее ---
 backup/
 *.zip

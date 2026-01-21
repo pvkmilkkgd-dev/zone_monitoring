@@ -94,7 +94,7 @@ npm run build
 ## 🗂️ Структура проекта
 
 ```
-zone_monitoring2/
+zone_monitoring/
 ├── backend/              # Backend (FastAPI)
 │   ├── app/
 │   │   ├── api/         # API роуты

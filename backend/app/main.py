@@ -76,7 +76,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_DIR = Path(__file__).resolve().parent.parent  # .../backend
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 INDEX_FILE = FRONTEND_DIST / "index.html"
-FRONTEND_ROOT = PROJECT_ROOT / "frontend"
 MAPS_DIR = BACKEND_DIR / "maps"
 
 mimetypes.add_type("application/geo+json", ".geojson")
@@ -94,20 +93,7 @@ if MAPS_DIR.exists():
     app.mount("/maps", StaticFiles(directory=str(MAPS_DIR)), name="maps")
 
 
-# 2) Vite icon
-@app.get("/vite.svg", include_in_schema=False)
-async def vite_svg():
-    vite_icon = FRONTEND_DIST / "vite.svg"
-    if not vite_icon.exists():
-        fallback = FRONTEND_ROOT / "vite.svg"
-        if fallback.exists():
-            vite_icon = fallback
-        else:
-            raise HTTPException(status_code=404, detail="vite.svg not found")
-    return FileResponse(vite_icon)
-
-
-# 3) SPA routes: root and /admin -> index.html
+# 2) SPA routes: root and /admin -> index.html
 @app.get("/", include_in_schema=False)
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/{_:path}", include_in_schema=False)
