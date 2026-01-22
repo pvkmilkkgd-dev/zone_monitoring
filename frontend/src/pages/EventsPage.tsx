@@ -289,13 +289,6 @@ export function EventsPage() {
             </button>
             <button
               type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
               onClick={() => { window.location.href = "/admin/zones"; }}
               className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
             >
@@ -314,14 +307,30 @@ export function EventsPage() {
             >
               События
             </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/users"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Пользователи
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/situation"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Обстановка
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={logout}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
-          >
-            Выход
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={logout}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+            >
+              Выход
+            </button>
+          </div>
         </div>
 
         {/* Заголовок */}
@@ -505,36 +514,36 @@ export function EventsPage() {
                 </div>
               </div>
               
-              {/* Изображения */}
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Изображения</label>
-                <input
-                  ref={imagesInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImagesChange}
-                  className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-sky-500/20 file:text-sky-300 hover:file:bg-sky-500/30 cursor-pointer"
-                />
-                {images.length > 0 && (
-                  <p className="mt-1 text-xs text-slate-400">Выбрано: {images.length} файл(ов)</p>
-                )}
-              </div>
-              
-              {/* Документы */}
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Документы</label>
-                <input
-                  ref={documentsInputRef}
-                  type="file"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
-                  multiple
-                  onChange={handleDocumentsChange}
-                  className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-sky-500/20 file:text-sky-300 hover:file:bg-sky-500/30 cursor-pointer"
-                />
-                {documents.length > 0 && (
-                  <p className="mt-1 text-xs text-slate-400">Выбрано: {documents.length} файл(ов)</p>
-                )}
+              {/* Изображения и Документы в одной строке */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Изображения</label>
+                  <input
+                    ref={imagesInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImagesChange}
+                    className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-sky-500/20 file:text-sky-300 hover:file:bg-sky-500/30 cursor-pointer"
+                  />
+                  {images.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-400">Выбрано: {images.length}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Документы</label>
+                  <input
+                    ref={documentsInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    multiple
+                    onChange={handleDocumentsChange}
+                    className="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-sky-500/20 file:text-sky-300 hover:file:bg-sky-500/30 cursor-pointer"
+                  />
+                  {documents.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-400">Выбрано: {documents.length}</p>
+                  )}
+                </div>
               </div>
               
               {/* Кнопка создания */}

@@ -498,13 +498,6 @@ export function ZonesAndDevicesPage() {
             </button>
             <button
               type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
               className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
             >
               Зоны и устройства
@@ -523,14 +516,30 @@ export function ZonesAndDevicesPage() {
             >
               События
             </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/users"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Пользователи
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/situation"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Обстановка
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={logout}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
-          >
-            Выход
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={logout}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+            >
+              Выход
+            </button>
+          </div>
         </div>
 
         {/* Заголовок */}
