@@ -1,7 +1,7 @@
 from sqlalchemy import Column, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
-from app.db.session import Base
+from app.db.base import Base
 
 
 class SystemSettings(Base):

@@ -5,6 +5,9 @@ export type AdministrativeZone = {
   map_id: number;
   department_name: string;
   district_names: string[];
+  layer_id?: number | null;
+  sub_layer_id?: number | null;
+  sub_sub_layer_id?: number | null;
   created_at: string;
   updated_at?: string;
 };
@@ -13,11 +16,17 @@ export type AdministrativeZoneCreate = {
   map_id: number;
   department_name: string;
   district_names: string[];
+  layer_id?: number | null;
+  sub_layer_id?: number | null;
+  sub_sub_layer_id?: number | null;
 };
 
 export type AdministrativeZoneUpdate = {
   department_name?: string;
   district_names?: string[];
+  layer_id?: number | null;
+  sub_layer_id?: number | null;
+  sub_sub_layer_id?: number | null;
 };
 
 export const getAdministrativeZones = async (mapId?: number) => {

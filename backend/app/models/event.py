@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
-from app.db.session import Base
+from app.db.base import Base
 
 
 class Event(Base):
@@ -10,11 +10,26 @@ class Event(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
-    zone_id = Column(Integer, ForeignKey("zones.id", ondelete="CASCADE"), nullable=False)
-    status = Column(String(32), nullable=False)  # "ok" | "warning" | "alert"
+    zone_id = Column(Integer, ForeignKey("zones.id", ondelete="SET NULL"), nullable=True)
+    administrative_zone_id = Column(Integer, ForeignKey("administrative_zones.id", ondelete="SET NULL"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="ID пользователя создавшего событие")
+    district_name = Column(String(255), nullable=True, comment="Название района где произошло событие")
+    status = Column(String(32), nullable=False, default="warning")  # "ok" | "warning" | "alert"
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    importance = Column(Integer, nullable=False, default=5, comment="Коэффициент важности от 1 до 10")
+    layer_id = Column(Integer, ForeignKey("layers.id", ondelete="SET NULL"), nullable=True, comment="ID главного слоя")
+    sub_layer_id = Column(Integer, ForeignKey("sub_layers.id", ondelete="SET NULL"), nullable=True, comment="ID вложенного слоя")
+    sub_sub_layer_id = Column(Integer, ForeignKey("sub_sub_layers.id", ondelete="SET NULL"), nullable=True, comment="ID под-вложенного слоя")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 
     map = relationship("Map", back_populates="events")
     zone = relationship("Zone", back_populates="events")
+    administrative_zone = relationship("AdministrativeZone", backref="events")
+    created_by = relationship("User", backref="created_events")
+    images = relationship("EventImage", back_populates="event", cascade="all, delete-orphan")
+    documents = relationship("EventDocument", back_populates="event", cascade="all, delete-orphan")
+    layer = relationship("Layer", backref="events")
+    sub_layer = relationship("SubLayer", backref="events")
+    sub_sub_layer = relationship("SubSubLayer", backref="events")

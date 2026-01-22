@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import BigInteger, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.session import Base
+from app.db.base import Base
 
 
 class Criterion(Base):

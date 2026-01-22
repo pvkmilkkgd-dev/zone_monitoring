@@ -7,13 +7,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
-
-# === JWT settings ===
-SECRET_KEY = "CHANGE_ME_SUPER_SECRET_KEY"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 # === Password hashing ===
 pwd_context = CryptContext(
@@ -55,13 +51,13 @@ def create_access_token(
     subject: str, expires_delta: Optional[timedelta] = None
 ) -> str:
     if expires_delta is None:
-        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode = {
         "sub": subject,
         "exp": datetime.now(timezone.utc) + expires_delta,
     }
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def get_current_user(
@@ -75,7 +71,7 @@ def get_current_user(
     )
 
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         sub: Optional[str] = payload.get("sub")
         if sub is None:
             raise credentials_exception

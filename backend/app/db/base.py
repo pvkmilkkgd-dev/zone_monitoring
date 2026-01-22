@@ -1,9 +1,9 @@
-from app.db.session import Base
+from sqlalchemy.orm import declarative_base
 
-from app.models.user import User  # noqa: F401
-from app.models.map import Map  # noqa: F401
-from app.models.zone import Zone  # noqa: F401
-from app.models.event import Event  # noqa: F401
-from app.models.system_settings import SystemSettings  # noqa: F401
+# Base должен быть определен здесь, чтобы избежать циклических зависимостей
+# НЕ импортируем модели здесь - это вызывает циклический импорт!
+# Модели регистрируются в Base.metadata при импорте через app/models/__init__.py
+# Для Alembic импорты моделей находятся в migrations/env.py
+Base = declarative_base()
 
-__all__ = ["User", "Map", "Zone", "Event", "SystemSettings", "Base"]
+__all__ = ["Base"]

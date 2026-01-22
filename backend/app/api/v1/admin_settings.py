@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user
-from app.core.db import get_db
+from app.db.session import get_db
 from app.models.system_settings import SystemSettings
 from app.schemas.settings import SystemSettingsResponse, SystemSettingsUpdate
 

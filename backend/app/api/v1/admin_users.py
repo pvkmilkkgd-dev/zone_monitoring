@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user
-from app.core.db import get_db
+from app.db.session import get_db
 from app.core.security import hash_password, validate_password_strength
 from app.models.user import User
 from app.schemas.user import (

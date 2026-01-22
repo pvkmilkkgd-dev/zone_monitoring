@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getZones, getZoneState, Zone, ZoneState } from "../api/zones";
 
 type Props = {
@@ -6,6 +6,13 @@ type Props = {
 };
 
 const MapViewer = ({ onZoneSelect }: Props) => {
+  const onZoneSelectRef = useRef(onZoneSelect);
+  
+  // Обновляем ref при изменении функции
+  useEffect(() => {
+    onZoneSelectRef.current = onZoneSelect;
+  }, [onZoneSelect]);
+
   useEffect(() => {
     const bootstrap = async () => {
       try {
@@ -13,13 +20,13 @@ const MapViewer = ({ onZoneSelect }: Props) => {
         if (zones.length === 0) return;
         const first = zones[0];
         const state = await getZoneState(first.id);
-        onZoneSelect?.(first, state);
+        onZoneSelectRef.current?.(first, state);
       } catch (err) {
         console.error("Failed to fetch zones", err);
       }
     };
     bootstrap();
-  }, [onZoneSelect]);
+  }, []); // Запускаем только один раз при монтировании
 
   return (
     <div className="card h-full min-h-[320px] flex items-center justify-center">

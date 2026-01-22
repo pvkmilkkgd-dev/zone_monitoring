@@ -13,6 +13,8 @@ from app.api.v1 import admin_users
 from app.api.v1.admin_settings import router as admin_settings_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.administrative_zones import router as administrative_zones_router
+from app.api.v1.routes.events import router as events_router
+from app.api.v1.routes.layers import router as layers_router
 from app.core.bootstrap import require_bootstrap_completed
 from app.core.exceptions import (
     validation_exception_handler,
@@ -70,6 +72,8 @@ app.include_router(maps_router)
 app.include_router(regions_router)
 app.include_router(admin_regions_router, prefix="/api/v1")
 app.include_router(administrative_zones_router, prefix="/api/v1")
+app.include_router(events_router, prefix="/api/v1")
+app.include_router(layers_router, prefix="/api/v1")
 
 # --- FRONT (Vite build) ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -91,6 +95,11 @@ app.mount(
 # 1.5) GeoJSON maps
 if MAPS_DIR.exists():
     app.mount("/maps", StaticFiles(directory=str(MAPS_DIR)), name="maps")
+
+# 1.6) Uploads (images, documents)
+UPLOADS_DIR = BACKEND_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 
 # 2) SPA routes: root and /admin -> index.html

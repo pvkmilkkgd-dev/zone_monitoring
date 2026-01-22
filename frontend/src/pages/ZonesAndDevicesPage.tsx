@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -18,13 +18,8 @@ type Region = {
   name: string;
 };
 
-// Настройки отображения карты для Свердловской области
-// Реальный Bbox (из загруженных районов): lon 58.40-65.29, lat 56.19-60.17
-// Размер области: 6.89° x 3.98°
-// Центр должен быть в формате [lon, lat] для geoMercator
-const DEFAULT_MAP_SETTINGS = {
-  center: [61.85, 58.18] as [number, number], // [longitude, latitude]
-  scale: 3000, // Масштаб для отображения всех районов
+type District = {
+  name: string;
 };
 
 export function ZonesAndDevicesPage() {
@@ -35,25 +30,96 @@ export function ZonesAndDevicesPage() {
   // Информация о выбранном регионе из настроек
   const [geoUrl, setGeoUrl] = useState<string | null>(null);
   const [regionName, setRegionName] = useState<string>("");
-  const [regionId, setRegionId] = useState<string | null>(null);
   
-  // Состояние для настроек карты (вычисляются автоматически)
+  // Список всех районов из GeoJSON
+  const [allDistricts, setAllDistricts] = useState<District[]>([]);
+  
+  // Состояние для настроек карты
   const [mapConfig, setMapConfig] = useState<{ center: [number, number]; scale: number } | null>(null);
   
   // Состояние для отображения названия района при наведении
   const [hoveredDistrict, setHoveredDistrict] = useState<string | null>(null);
   
-  // Состояние для проблемных районов
-  const [invalidDistricts, setInvalidDistricts] = useState<Array<{name: string; reason: string}>>([]);
-  
   // Форма добавления зоны
   const [departmentName, setDepartmentName] = useState("");
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  
+  // Поиск по районам
+  const [districtSearch, setDistrictSearch] = useState("");
+  
+  // Сортировка таблицы подразделений
+  const [sortField, setSortField] = useState<'name' | 'districts'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  
+  // Модальное окно удаления
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; zoneId: number | null; zoneName: string }>({ open: false, zoneId: null, zoneName: '' });
+  
+  // Уведомление об успешном удалении
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Ошибка валидации имени
+  const [nameError, setNameError] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Состояние для размеров контейнера карты (responsive)
-  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
+  // Состояние для размеров контейнера карты
+  const [mapSize, setMapSize] = useState({ width: 800, height: 400 });
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Состояние для зума карты
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const baseScaleRef = useRef<number | null>(null);
+  
+  // Состояние для сдвига карты (pan)
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
+  const isDraggingRef = useRef(false);
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Собираем все назначенные районы из существующих зон
+  const assignedDistricts = useMemo(() => {
+    const assigned = new Set<string>();
+    zones.forEach(zone => {
+      zone.district_names.forEach(name => assigned.add(name));
+    });
+    return assigned;
+  }, [zones]);
+
+  // Фильтрация районов по поиску
+  const filteredDistricts = useMemo(() => {
+    if (!districtSearch.trim()) return allDistricts;
+    const search = districtSearch.toLowerCase();
+    return allDistricts.filter(d => d.name.toLowerCase().includes(search));
+  }, [allDistricts, districtSearch]);
+
+  // Доступные для выбора районы (не назначенные другим отделам)
+  const availableDistricts = useMemo(() => {
+    return filteredDistricts.filter(d => !assignedDistricts.has(d.name));
+  }, [filteredDistricts, assignedDistricts]);
+
+  // Сортированные зоны
+  const sortedZones = useMemo(() => {
+    const sorted = [...zones];
+    sorted.sort((a, b) => {
+      if (sortField === 'name') {
+        const cmp = a.department_name.localeCompare(b.department_name, 'ru');
+        return sortDir === 'asc' ? cmp : -cmp;
+      } else {
+        const cmp = a.district_names.length - b.district_names.length;
+        return sortDir === 'asc' ? cmp : -cmp;
+      }
+    });
+    return sorted;
+  }, [zones, sortField, sortDir]);
+
+  const handleSort = (field: 'name' | 'districts') => {
+    if (sortField === field) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -74,10 +140,92 @@ export function ZonesAndDevicesPage() {
 
     ro.observe(container);
     return () => ro.disconnect();
-  }, []);
+  }, [geoUrl]);
 
-  // Функция для вычисления bounds из GeoJSON и установки правильного масштаба
-  const calculateMapBounds = async (url: string) => {
+  // Обработчик зума колесиком и перетаскивания - добавляем напрямую к DOM
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    if (!container || !geoUrl) return;
+
+    const handleWheelEvent = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return; // только левая кнопка
+      isDraggingRef.current = true;
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+      container.style.cursor = 'grabbing';
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !lastMousePosRef.current) return;
+      
+      const dx = e.clientX - lastMousePosRef.current.x;
+      const dy = e.clientY - lastMousePosRef.current.y;
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+      
+      // Более точная конвертация пикселей в градусы для проекции Меркатора
+      const currentScaleValue = (baseScaleRef.current || 3000) * zoomLevel;
+      // Коэффициент зависит от масштаба: чем больше scale, тем меньше градусов на пиксель
+      const degreesPerPx = 100 / currentScaleValue;
+      
+      setMapCenter(prev => {
+        const current = prev || mapConfig?.center || [61.85, 58.18];
+        return [
+          current[0] - dx * degreesPerPx,
+          current[1] + dy * degreesPerPx * 0.7 // корректировка для широты
+        ];
+      });
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      lastMousePosRef.current = null;
+      container.style.cursor = 'grab';
+    };
+
+    const handleMouseLeave = () => {
+      isDraggingRef.current = false;
+      lastMousePosRef.current = null;
+      container.style.cursor = 'grab';
+    };
+
+    container.addEventListener('wheel', handleWheelEvent, { passive: false });
+    container.addEventListener('mousedown', handleMouseDown);
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseup', handleMouseUp);
+    container.addEventListener('mouseleave', handleMouseLeave);
+    
+    return () => {
+      container.removeEventListener('wheel', handleWheelEvent);
+      container.removeEventListener('mousedown', handleMouseDown);
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseup', handleMouseUp);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [geoUrl, mapConfig, zoomLevel]);
+
+  // Сохраняем базовый scale и center при первой загрузке
+  useEffect(() => {
+    if (mapConfig && baseScaleRef.current === null) {
+      baseScaleRef.current = mapConfig.scale;
+      setMapCenter(mapConfig.center);
+    }
+  }, [mapConfig]);
+
+  // Вычисляем текущий scale с учетом зума
+  const currentScale = useMemo(() => {
+    if (!mapConfig) return 3000;
+    const base = baseScaleRef.current || mapConfig.scale;
+    return Math.round(base * zoomLevel);
+  }, [mapConfig, zoomLevel]);
+
+  // Функция для загрузки списка районов и вычисления bounds
+  const loadDistrictsAndBounds = async (url: string) => {
     try {
       const response = await fetch(url);
       const geojson = await response.json();
@@ -86,108 +234,76 @@ export function ZonesAndDevicesPage() {
         return;
       }
 
+      // Извлекаем названия районов (исключаем пустые и "неизвестная территория")
+      const excludeNames = ['неизвестная территория', 'unknown'];
+      const districts: District[] = geojson.features
+        .map((f: any) => ({
+          name: f.properties?.name || f.properties?.NAME || ''
+        }))
+        .filter((d: District) => d.name && !excludeNames.includes(d.name.toLowerCase()))
+        .sort((a: District, b: District) => a.name.localeCompare(b.name, 'ru'));
+      
+      setAllDistricts(districts);
+
+      // Вычисляем bounds
       let minLon = Infinity, minLat = Infinity;
       let maxLon = -Infinity, maxLat = -Infinity;
 
-      // Проходим по всем features и находим min/max координаты
       geojson.features.forEach((feature: any) => {
         const geometry = feature.geometry;
         const coords = geometry.coordinates;
         
         const processCoords = (coords: any[]): void => {
           if (typeof coords[0] === 'number') {
-            // Это массив [lon, lat]
             const [lon, lat] = coords;
             minLon = Math.min(minLon, lon);
             maxLon = Math.max(maxLon, lon);
             minLat = Math.min(minLat, lat);
             maxLat = Math.max(maxLat, lat);
           } else {
-            // Это вложенный массив
             coords.forEach((item: any) => processCoords(item));
           }
         };
         
-        // Обрабатываем в зависимости от типа геометрии
         if (geometry.type === 'MultiPolygon') {
-          // MultiPolygon: [[[lon, lat], ...], ...]
           coords.forEach((polygon: any[]) => {
             polygon.forEach((ring: any[]) => {
               ring.forEach((coord: any[]) => processCoords(coord));
             });
           });
         } else if (geometry.type === 'Polygon') {
-          // Polygon: [[lon, lat], ...]
           coords.forEach((ring: any[]) => {
             ring.forEach((coord: any[]) => processCoords(coord));
           });
         } else {
-          // Другие типы
           processCoords(coords);
         }
       });
 
-      // Проверяем, что bounds валидны
       if (minLon === Infinity || minLat === Infinity) {
-        console.error('Invalid bounds calculated');
         return;
       }
 
-      // Вычисляем центр
       const centerLon = (minLon + maxLon) / 2;
       const centerLat = (minLat + maxLat) / 2;
-      
-      // Вычисляем размеры области
       const width = maxLon - minLon;
       const height = maxLat - minLat;
       
-      // Вычисляем scale на основе размера области и размера карты
-      // Для карты 800x600 и области шириной width градусов
       const mapWidth = 800;
-      const mapHeight = 600;
-      const maxDimension = Math.max(width, height);
-      
-      // Формула для правильного масштаба в проекции Mercator:
-      // Используем формулу, которая учитывает широту центра для правильного масштабирования
-      // Базовый масштаб для широты ~58 градусов (Свердловская область)
-      const latRad = (centerLat * Math.PI) / 180;
-      const latScale = Math.cos(latRad);
-      
-      // Вычисляем масштаб с учетом широты и размера области
-      // Увеличиваем коэффициент для лучшего заполнения карты (с padding ~10%)
-      const paddingFactor = 1.1; // Добавляем 10% padding вокруг области
-      const baseScale = (mapWidth / maxDimension) * paddingFactor;
-      const scale = Math.round(baseScale / latScale);
-      
-      // Увеличиваем масштаб в 10 раз для более детального отображения
-      const scaledUp = scale * 10;
-      
-      // Ограничиваем масштаб разумными пределами (от 5000 до 100000)
-      const clampedScale = Math.max(5000, Math.min(100000, scaledUp));
-      
-      console.log('Scale calculation:', {
-        mapWidth,
-        maxDimension,
-        centerLat,
-        latScale: latScale.toFixed(4),
-        baseScale: baseScale.toFixed(2),
-        calculatedScale: scale,
-        scaledUp,
-        clampedScale,
-        formula: `(800 / ${maxDimension.toFixed(2)}) * ${paddingFactor} / ${latScale.toFixed(4)} * 10 = ${scaledUp}`
-      });
-      
-      console.log('Calculated bounds:', { minLon, minLat, maxLon, maxLat });
-      console.log('Area size:', { width, height });
-      console.log('Calculated center:', [centerLon, centerLat]);
-      console.log('Calculated scale:', scale);
+      const mapHeight = 400;
+      const paddingFactor = 0.7;
+      const scaleX = (mapWidth / width) * paddingFactor;
+      const scaleY = (mapHeight / height) * paddingFactor;
+      const baseScale = Math.min(scaleX, scaleY);
+      const finalScale = Math.round(baseScale * 40);
+      const clampedScale = Math.max(500, Math.min(8000, finalScale));
       
       setMapConfig({
         center: [centerLon, centerLat],
         scale: clampedScale,
       });
     } catch (error) {
-      console.error('Error calculating bounds:', error);
+      console.error('Error loading districts:', error);
     }
   };
 
@@ -196,28 +312,20 @@ export function ZonesAndDevicesPage() {
       setLoading(true);
       setError(null);
 
-      // Загружаем системные настройки для получения выбранного региона
       const settings = await fetchSystemSettings();
       
       if (settings && settings.region_ids && settings.region_ids.length > 0) {
-        // Берем первый выбранный регион
         const primaryRegionId = settings.region_ids[0];
-        setRegionId(primaryRegionId);
         
-        // Загружаем информацию о регионах
         const regionsResp = await fetch("/api/regions");
         if (regionsResp.ok) {
           const regions = (await regionsResp.json()) as Region[];
           const region = regions.find((r) => r.id === primaryRegionId);
           if (region) {
             setRegionName(region.name);
-            
-            // Формируем URL для GeoJSON с районами региона
             const url = `/maps/ru/region/${primaryRegionId}/districts.geojson`;
-            console.log('Loading GeoJSON from:', url);
             setGeoUrl(url);
-            // Вычисляем bounds и настройки карты
-            await calculateMapBounds(url);
+            await loadDistrictsAndBounds(url);
           } else {
             setError(`Информация о регионе с ID ${primaryRegionId} не найдена`);
           }
@@ -228,7 +336,6 @@ export function ZonesAndDevicesPage() {
         setError("Регион не выбран в настройках системы");
       }
 
-      // Получаем зоны для карты с id=1 (можно изменить)
       const data = await getAdministrativeZones(1);
       setZones(data);
     } catch (e: any) {
@@ -252,491 +359,252 @@ export function ZonesAndDevicesPage() {
     }
   };
 
+  const handleToggleDistrict = (districtName: string) => {
+    setSelectedDistricts(prev => 
+      prev.includes(districtName)
+        ? prev.filter(d => d !== districtName)
+        : [...prev, districtName]
+    );
+  };
+
+  const handleSelectAll = () => {
+    const availableNames = availableDistricts.map(d => d.name);
+    setSelectedDistricts(prev => {
+      const newSelected = [...prev];
+      availableNames.forEach(name => {
+        if (!newSelected.includes(name)) {
+          newSelected.push(name);
+        }
+      });
+      return newSelected;
+    });
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedDistricts([]);
+  };
+
   const handleAddZone = async () => {
     setFormError(null);
+    setNameError(false);
 
     if (!departmentName.trim()) {
-      setFormError("Введите название отдела");
+      setNameError(true);
+      nameInputRef.current?.focus();
+      return;
+    }
+
+    // Проверка на дублирование названия
+    const nameExists = zones.some(
+      z => z.department_name.toLowerCase().trim() === departmentName.toLowerCase().trim()
+    );
+    if (nameExists) {
+      setFormError("Подразделение с таким названием уже существует");
+      setNameError(true);
+      nameInputRef.current?.focus();
+      return;
+    }
+
+    if (selectedDistricts.length === 0) {
+      setFormError("Выберите хотя бы один район");
       return;
     }
 
     try {
       setSaving(true);
+      const savedName = departmentName.trim();
+      
       await createAdministrativeZone({
-        map_id: 1, // Можно изменить на динамический выбор карты
+        map_id: 1,
         department_name: departmentName,
-        district_names: [], // Пустой массив, так как районы не используются
+        district_names: selectedDistricts,
       });
 
       // Очистка формы
       setDepartmentName("");
+      setSelectedDistricts([]);
       
       // Перезагрузка списка
       await loadZones();
       setFormError(null);
+      
+      // Показываем модальное окно успеха
+      setSuccessMessage(`Подразделение "${savedName}" успешно добавлено`);
     } catch (e: any) {
       console.error(e);
       if (handleAuthError(e)) return;
-      setFormError(e.message || "Ошибка при добавлении зоны");
+      setFormError(e.message || "Ошибка при добавлении");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDeleteZone = async (zoneId: number) => {
-    if (!confirm("Вы уверены, что хотите удалить эту запись?")) {
-      return;
-    }
+  const openDeleteModal = (zone: AdministrativeZone) => {
+    setDeleteModal({ open: true, zoneId: zone.id, zoneName: zone.department_name });
+  };
 
+  const closeDeleteModal = () => {
+    setDeleteModal({ open: false, zoneId: null, zoneName: '' });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteModal.zoneId) return;
+    
+    const zoneName = deleteModal.zoneName;
+    
     try {
-      await deleteAdministrativeZone(zoneId);
+      await deleteAdministrativeZone(deleteModal.zoneId);
       await loadZones();
+      closeDeleteModal();
+      setSuccessMessage(`Подразделение "${zoneName}" успешно удалено`);
     } catch (e: any) {
       console.error(e);
       if (handleAuthError(e)) return;
-      alert(e.message || "Ошибка при удалении зоны");
+      setError(e.message || "Ошибка при удалении");
+      closeDeleteModal();
     }
   };
 
+  // Получаем цвет для района на основе назначения
+  const getDistrictColor = (districtName: string) => {
+    // Проверяем, выбран ли район в форме
+    if (selectedDistricts.includes(districtName)) {
+      return { fill: "rgba(14, 165, 233, 0.5)", stroke: "rgba(14, 165, 233, 0.8)" }; // sky-500
+    }
+    
+    // Проверяем, назначен ли район какому-то отделу
+    for (const zone of zones) {
+      if (zone.district_names.includes(districtName)) {
+        return { fill: "rgba(34, 197, 94, 0.4)", stroke: "rgba(34, 197, 94, 0.7)" }; // green-500
+      }
+    }
+    
+    // Район не назначен - серый контур
+    return { fill: "rgba(148, 163, 184, 0.1)", stroke: "rgba(148, 163, 184, 0.5)" };
+  };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#1e293b", color: "#fff", padding: "2rem" }}>
-      <div style={{ maxWidth: "1400px", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h1 style={{ fontSize: "2rem", fontWeight: "bold", margin: 0 }}>
-            Зоны и устройства
-          </h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white px-4 py-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Навигация */}
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Регион и управление
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/users"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Пользователи
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+            >
+              Зоны и устройства
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/layers"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Слои
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/events"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              События
+            </button>
+          </div>
           <button
             type="button"
             onClick={logout}
-            style={{
-              padding: "0.5rem 1rem",
-              borderRadius: "0.5rem",
-              fontSize: "0.875rem",
-              color: "#cbd5e1",
-              background: "transparent",
-              border: "1px solid rgba(71, 85, 105, 0.5)",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#fca5a5";
-              e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
-              e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.5)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#cbd5e1";
-              e.currentTarget.style.background = "transparent";
-              e.currentTarget.style.borderColor = "rgba(71, 85, 105, 0.5)";
-            }}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
           >
             Выход
           </button>
         </div>
 
-        {/* Навигация */}
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            borderRadius: "9999px",
-            background: "#1e293b",
-            padding: "0.25rem",
-            fontSize: "0.875rem",
-            width: "fit-content",
-            marginBottom: "2rem",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              window.location.href = "/admin";
-            }}
-            style={{
-              padding: "0.375rem 1rem",
-              borderRadius: "9999px",
-              color: "#cbd5e1",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#f1f5f9";
-              e.currentTarget.style.background = "rgba(51, 65, 85, 0.5)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#cbd5e1";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            Регион и управление
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              window.location.href = "/admin/users";
-            }}
-            style={{
-              padding: "0.375rem 1rem",
-              borderRadius: "9999px",
-              color: "#cbd5e1",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#f1f5f9";
-              e.currentTarget.style.background = "rgba(51, 65, 85, 0.5)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#cbd5e1";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            Пользователи
-          </button>
-          <button
-            type="button"
-            style={{
-              padding: "0.375rem 1rem",
-              borderRadius: "9999px",
-              background: "#0ea5e9",
-              color: "#0f172a",
-              fontWeight: "500",
-              border: "none",
-              cursor: "default",
-              boxShadow: "0 1px 2px 0 rgba(14, 165, 233, 0.4)",
-            }}
-          >
-            Зоны и устройства
-          </button>
-        </div>
+        {/* Заголовок */}
+        <h1 className="text-2xl font-semibold tracking-tight mb-3">Зоны и устройства</h1>
 
+
+        {/* Ошибка */}
         {error && (
-          <div
-            style={{
-              background: "#ef4444",
-              padding: "1rem",
-              borderRadius: "0.5rem",
-              marginBottom: "1rem",
-            }}
-          >
-            {error}
+          <div className="mb-6 rounded-2xl border border-red-500/60 bg-red-500/10 p-4 text-red-100">
+            <p className="text-sm">{error}</p>
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+        {/* Легенда */}
+        <div className="mb-3 flex flex-wrap gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-slate-400/20 border border-slate-400/50"></div>
+            <span className="text-slate-400">Свободный</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-sky-500/50 border border-sky-500/80"></div>
+            <span className="text-slate-300">Выбран</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-green-500/40 border border-green-500/70"></div>
+            <span className="text-slate-300">Назначен</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           {/* Карта */}
-          <div
-            style={{
-              background: "#334155",
-              borderRadius: "0.5rem",
-              padding: "1.5rem",
-            }}
-          >
+          <div className="xl:col-span-2 rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold">Карта: {regionName}</h2>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>{Math.round(zoomLevel * 100)}%</span>
+                <button
+                  onClick={() => { setZoomLevel(1); setMapCenter(mapConfig?.center || null); }}
+                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
+                >
+                  Сброс
+                </button>
+              </div>
+            </div>
+            
             {geoUrl ? (
-              <div style={{ background: "#1e293b", borderRadius: "0.5rem", padding: "1rem", position: "relative" }}>
-                <div style={{ marginBottom: "0.5rem", fontSize: "0.875rem", color: "#cbd5e1" }}>
-                  Регион: <strong>{regionName || "Загрузка..."}</strong>
-                </div>
+              <div className="relative">
                 <div 
                   ref={mapContainerRef}
-                  style={{ width: "100%", height: "600px", overflow: "hidden", borderRadius: "0.5rem" }}
+                  className="w-full h-[calc(100vh-280px)] min-h-[300px] max-h-[500px] rounded-xl overflow-hidden bg-slate-800/50 relative cursor-grab active:cursor-grabbing"
                 >
                   <ComposableMap
                     projection="geoMercator"
-                    projectionConfig={mapConfig || {
-                      scale: 3000,
-                      center: [61.85, 58.18], // [longitude, latitude] - центр Свердловской области
+                    projectionConfig={{ 
+                      scale: currentScale, 
+                      center: mapCenter || mapConfig?.center || [61.85, 58.18] 
                     }}
-                    width={mapSize.width}
-                    height={mapSize.height}
-                    style={{ width: "100%", height: "100%" }}
+                    width={mapSize.width || 800}
+                    height={mapSize.height || 400}
+                    style={{ width: "100%", height: "100%", display: "block" }}
                   >
-                  <Geographies 
-                    geography={geoUrl}
-                  >
-                    {({ geographies }) => {
-                      console.log(`Rendering ${geographies.length} districts`);
-                      
-                      // Логируем структуру первого района для отладки
-                      if (geographies.length > 0) {
-                        const firstGeo = geographies[0];
-                        const props = firstGeo.properties as any;
-                        const districtName = props?.name || props?.NAME || 'Unknown';
-                        console.log(`First district sample: ${districtName}`, {
-                          type: firstGeo.geometry?.type,
-                          coordsLength: firstGeo.geometry?.coordinates?.length,
-                          firstCoordSample: firstGeo.geometry?.coordinates?.[0]?.[0]?.[0]?.slice(0, 2)
-                        });
-                      }
-                      
-                      const validGeographies = geographies.filter((geo) => {
-                        if (!geo.geometry || !geo.geometry.coordinates) {
-                          const props = geo.properties as any;
-                          const districtName = props?.name || props?.NAME || 'Unknown';
-                          console.warn(`District ${districtName} has no geometry`);
-                          return false;
-                        }
-                        
-                        // Проверяем, что координаты не пустые
-                        const coords = geo.geometry.coordinates;
-                        const geomType = geo.geometry.type;
-                        
-                        if (geomType === 'MultiPolygon') {
-                          if (!Array.isArray(coords) || coords.length === 0) {
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            console.warn(`❌ District "${districtName}": empty MultiPolygon coordinates`);
-                            return false;
-                          }
-                          
-                          // Проверяем валидность структуры MultiPolygon: [[[lon, lat], ...], ...]
-                          // Структура: MultiPolygon -> [Polygon -> [Ring -> [lon, lat]]]
-                          try {
-                            let hasValidCoords = false;
-                            let minLon = Infinity, minLat = Infinity;
-                            let maxLon = -Infinity, maxLat = -Infinity;
-                            let coordCount = 0;
-                            let invalidCoordCount = 0;
-                            
-                            const extractBounds = (arr: any, depth: number = 0): void => {
-                              if (!Array.isArray(arr)) {
-                                invalidCoordCount++;
-                                return;
-                              }
-                              
-                              // Проверяем, является ли это координатой [lon, lat]
-                              if (arr.length >= 2 && typeof arr[0] === 'number' && typeof arr[1] === 'number') {
-                                coordCount++;
-                                const [lon, lat] = arr;
-                                if (isFinite(lon) && isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
-                                  hasValidCoords = true;
-                                  minLon = Math.min(minLon, lon);
-                                  maxLon = Math.max(maxLon, lon);
-                                  minLat = Math.min(minLat, lat);
-                                  maxLat = Math.max(maxLat, lat);
-                                } else {
-                                  invalidCoordCount++;
-                                }
-                              } else {
-                                // Рекурсивно обрабатываем вложенные массивы
-                                arr.forEach((item: any) => extractBounds(item, depth + 1));
-                              }
-                            };
-                            
-                            extractBounds(coords);
-                            
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            
-                            if (!hasValidCoords) {
-                              console.warn(`❌ District "${districtName}": no valid coordinates found (checked ${coordCount} coords, ${invalidCoordCount} invalid)`);
-                              // Пытаемся найти проблему в структуре
-                              if (coords.length > 0) {
-                                const firstPoly = coords[0];
-                                if (Array.isArray(firstPoly) && firstPoly.length > 0) {
-                                  const firstRing = firstPoly[0];
-                                  if (Array.isArray(firstRing)) {
-                                    console.warn(`  Structure: MultiPolygon[${coords.length} polygons] -> Polygon[${firstPoly.length} rings] -> Ring[${firstRing.length} coords]`);
-                                    if (firstRing.length > 0 && Array.isArray(firstRing[0])) {
-                                      const sample = firstRing[0];
-                                      console.warn(`  Sample coord: [${sample[0]}, ${sample[1]}] (types: ${typeof sample[0]}, ${typeof sample[1]})`);
-                                    }
-                                  }
-                                }
-                              }
-                              return false;
-                            }
-                            
-                            const width = maxLon - minLon;
-                            const height = maxLat - minLat;
-                            
-                            // Проверяем, что bounds валидны (не все координаты одинаковые)
-                            if (!isFinite(width) || !isFinite(height) || width <= 0 || height <= 0) {
-                              console.warn(`❌ District "${districtName}": invalid bounds (width: ${width}, height: ${height})`);
-                              return false;
-                            }
-                            
-                            // Если район слишком маленький (меньше 0.0001 градуса - это примерно 11 метров), пропускаем
-                            // Это очень маленький порог, чтобы не пропустить реальные маленькие районы
-                            if (width < 0.0001 || height < 0.0001) {
-                              console.warn(`⚠️ District "${districtName}": too small (${width.toFixed(8)}° x ${height.toFixed(8)}°)`);
-                              return false;
-                            }
-                            
-                            // Логируем успешную валидацию для отладки
-                            if (invalidCoordCount > 0) {
-                              console.log(`✓ District "${districtName}": valid (${coordCount} coords, ${invalidCoordCount} invalid filtered)`);
-                            }
-                          } catch (e) {
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            console.error(`❌ District "${districtName}": validation error:`, e);
-                            return false;
-                          }
-                        } else if (geomType === 'Polygon') {
-                          if (!Array.isArray(coords) || coords.length === 0) {
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            console.warn(`❌ District "${districtName}": empty Polygon coordinates`);
-                            return false;
-                          }
-                          
-                          // Проверяем валидность структуры Polygon: [[lon, lat], ...]
-                          // Структура: Polygon -> [Ring -> [lon, lat]]
-                          try {
-                            let hasValidCoords = false;
-                            let coordCount = 0;
-                            
-                            const extractBounds = (arr: any): void => {
-                              if (!Array.isArray(arr)) return;
-                              
-                              // Проверяем, является ли это координатой [lon, lat]
-                              if (arr.length >= 2 && typeof arr[0] === 'number' && typeof arr[1] === 'number') {
-                                coordCount++;
-                                const [lon, lat] = arr;
-                                if (isFinite(lon) && isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
-                                  hasValidCoords = true;
-                                }
-                              } else {
-                                // Рекурсивно обрабатываем вложенные массивы
-                                arr.forEach((item: any) => extractBounds(item));
-                              }
-                            };
-                            
-                            extractBounds(coords);
-                            
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            
-                            if (!hasValidCoords) {
-                              console.warn(`❌ District "${districtName}": no valid coordinates in Polygon (checked ${coordCount} coords)`);
-                              return false;
-                            }
-                          } catch (e) {
-                            const props = geo.properties as any;
-                            const districtName = props?.name || props?.NAME || 'Unknown';
-                            console.error(`❌ District "${districtName}": Polygon validation error:`, e);
-                            return false;
-                          }
-                        } else {
-                          // Неподдерживаемый тип геометрии
-                          const props = geo.properties as any;
-                          const districtName = props?.name || props?.NAME || 'Unknown';
-                          console.warn(`❌ District "${districtName}": unsupported geometry type "${geomType}"`);
-                          return false;
-                        }
-                        
-                        return true;
-                      });
-                      
-                      // Собираем информацию о проблемных районах
-                      const invalidDistrictsList: Array<{name: string; reason: string}> = [];
-                      
-                      geographies.forEach((geo) => {
-                        const props = geo.properties as any;
-                        const districtName = props?.name || props?.NAME || 'Unknown';
-                        
-                        if (!geo.geometry || !geo.geometry.coordinates) {
-                          invalidDistrictsList.push({ name: districtName, reason: 'Нет геометрии' });
-                          return;
-                        }
-                        
-                        if (!validGeographies.includes(geo)) {
-                          const geomType = geo.geometry.type;
-                          if (geomType === 'MultiPolygon' || geomType === 'Polygon') {
-                            invalidDistrictsList.push({ name: districtName, reason: 'Некорректные координаты' });
-                          } else {
-                            invalidDistrictsList.push({ name: districtName, reason: `Неподдерживаемый тип: ${geomType}` });
-                          }
-                        }
-                      });
-                      
-                      // Обновляем состояние проблемных районов
-                      if (invalidDistrictsList.length > 0) {
-                        setInvalidDistricts(invalidDistrictsList);
-                      } else {
-                        setInvalidDistricts([]);
-                      }
-                      
-                      const invalidCount = geographies.length - validGeographies.length;
-                      console.log(`Valid geographies: ${validGeographies.length} out of ${geographies.length}`);
-                      if (invalidCount > 0) {
-                        console.warn(`⚠️ ${invalidCount} districts have invalid geometry and were skipped`);
-                      }
-                      
-                      // Вычисляем bounds для каждого района и проверяем, находятся ли они в видимой области
-                      if (mapConfig) {
-                        const visibleBounds = {
-                          minLon: mapConfig.center[0] - 3.5,
-                          maxLon: mapConfig.center[0] + 3.5,
-                          minLat: mapConfig.center[1] - 2,
-                          maxLat: mapConfig.center[1] + 2,
-                        };
-                        
-                        const districtsInBounds = validGeographies.filter((geo) => {
+                    <Geographies geography={geoUrl}>
+                      {({ geographies }) => {
+                        const validGeographies = geographies.filter((geo) => {
+                          if (!geo.geometry || !geo.geometry.coordinates) return false;
                           const coords = geo.geometry.coordinates;
-                          let minLon = Infinity, minLat = Infinity;
-                          let maxLon = -Infinity, maxLat = -Infinity;
-                          
-                          const extractBounds = (arr: any) => {
-                            if (Array.isArray(arr[0])) {
-                              arr.forEach(extractBounds);
-                            } else if (arr.length >= 2 && typeof arr[0] === 'number') {
-                              const [lon, lat] = arr;
-                              minLon = Math.min(minLon, lon);
-                              maxLon = Math.max(maxLon, lon);
-                              minLat = Math.min(minLat, lat);
-                              maxLat = Math.max(maxLat, lat);
-                            }
-                          };
-                          
-                          extractBounds(coords);
-                          
-                          // Проверяем пересечение bounds
-                          const intersects = !(maxLon < visibleBounds.minLon || 
-                                              minLon > visibleBounds.maxLon ||
-                                              maxLat < visibleBounds.minLat || 
-                                              minLat > visibleBounds.maxLat);
-                          
-                          return intersects;
+                          const geomType = geo.geometry.type;
+                          return (geomType === 'MultiPolygon' || geomType === 'Polygon') && Array.isArray(coords) && coords.length > 0;
                         });
                         
-                        console.log(`Districts in visible bounds: ${districtsInBounds.length} out of ${validGeographies.length}`);
-                        
-                        if (districtsInBounds.length < validGeographies.length) {
-                          console.warn(`Some districts are outside visible bounds!`);
-                        }
-                      }
-                      
-                      // Логируем первые 5 районов для отладки
-                      validGeographies.slice(0, 5).forEach((geo, idx) => {
-                        const props = geo.properties as any;
-                        const name = props?.name || props?.NAME || `Район ${idx + 1}`;
-                        const geom = geo.geometry;
-                        if (geom?.coordinates) {
-                          console.log(`District ${idx + 1}: ${name}, type: ${geom.type}`);
-                        }
-                      });
-                      
-                      return validGeographies.map((geo, index) => {
-                        const props = geo.properties as any;
-                        const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
-                        
-                        // Генерируем уникальный цвет для каждого района
-                        // Используем золотое сечение для разнообразия цветов
-                        const hue = (index * 137.5) % 360;
-                        const fillColor = `hsl(${hue}, 60%, 50%)`;
-                        
-                        // Проверяем, что геометрия валидна перед рендерингом
-                        try {
-                          if (!geo.geometry || !geo.geometry.coordinates) {
-                            console.warn(`Skipping district ${districtName}: invalid geometry`);
-                            return null;
-                          }
+                        return validGeographies.map((geo, index) => {
+                          const props = geo.properties as any;
+                          const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
+                          const colors = getDistrictColor(districtName);
                           
                           return (
                             <Geography
@@ -744,253 +612,294 @@ export function ZonesAndDevicesPage() {
                               geography={geo}
                               onMouseEnter={() => setHoveredDistrict(districtName)}
                               onMouseLeave={() => setHoveredDistrict(null)}
-                              stroke="#ffffff"
-                              strokeWidth={0.5}
+                              onClick={() => {
+                                if (!assignedDistricts.has(districtName)) {
+                                  handleToggleDistrict(districtName);
+                                }
+                              }}
+                              stroke={colors.stroke}
+                              strokeWidth={0.5 / zoomLevel}
                               style={{
-                                default: {
-                                  fill: fillColor,
-                                  fillOpacity: 0.7,
-                                  outline: "none",
+                                default: { fill: colors.fill, outline: "none" },
+                                hover: { 
+                                  fill: assignedDistricts.has(districtName) ? colors.fill : "rgba(14, 165, 233, 0.3)",
+                                  outline: "none", 
+                                  cursor: assignedDistricts.has(districtName) ? "default" : "pointer" 
                                 },
-                                hover: {
-                                  fill: fillColor,
-                                  fillOpacity: 0.9,
-                                  outline: "none",
-                                  cursor: "pointer",
-                                },
-                                pressed: {
-                                  fill: fillColor,
-                                  fillOpacity: 1,
-                                  outline: "none",
-                                },
+                                pressed: { fill: colors.fill, outline: "none" },
                               }}
                             />
                           );
-                        } catch (error) {
-                          console.error(`Error rendering district ${districtName}:`, error);
-                          return null;
-                        }
-                      }).filter(Boolean);
-                    }}
-                  </Geographies>
-                </ComposableMap>
+                        });
+                      }}
+                    </Geographies>
+                  </ComposableMap>
                 </div>
                 
                 {hoveredDistrict && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      left: "50%",
-                      transform: "translate(-50%, -50%)",
-                      background: "rgba(15, 23, 42, 0.95)",
-                      padding: "0.75rem 1.25rem",
-                      borderRadius: "0.5rem",
-                      fontSize: "0.875rem",
-                      fontWeight: "600",
-                      color: "#38bdf8",
-                      border: "1px solid rgba(56, 189, 248, 0.3)",
-                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.3)",
-                      pointerEvents: "none",
-                      whiteSpace: "nowrap",
-                      zIndex: 10,
-                    }}
-                  >
+                  <div className="absolute top-4 left-4 bg-slate-900/95 px-4 py-2 rounded-lg text-sm font-semibold text-sky-400 border border-sky-500/30 shadow-lg pointer-events-none z-10">
                     {hoveredDistrict}
+                    {assignedDistricts.has(hoveredDistrict) && (
+                      <span className="ml-2 text-green-400 font-normal">(назначен)</span>
+                    )}
                   </div>
                 )}
               </div>
             ) : (
-              <div style={{ background: "#1e293b", borderRadius: "0.5rem", padding: "2rem", textAlign: "center", color: "#94a3b8" }}>
+              <div className="h-[calc(100vh-280px)] min-h-[300px] max-h-[500px] rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-400">
                 {loading ? "Загрузка карты..." : "Карта не загружена. Проверьте настройки региона."}
-              </div>
-            )}
-
-            <div style={{ marginTop: "1rem", fontSize: "0.875rem", color: "#94a3b8" }}>
-              Отображаются муниципальные районы региона {regionName}
-            </div>
-            
-            {invalidDistricts.length > 0 && (
-              <div style={{ 
-                marginTop: "1rem", 
-                padding: "0.75rem", 
-                background: "rgba(239, 68, 68, 0.1)", 
-                border: "1px solid rgba(239, 68, 68, 0.3)",
-                borderRadius: "0.5rem",
-                fontSize: "0.875rem",
-                color: "#fca5a5"
-              }}>
-                <div style={{ fontWeight: "600", marginBottom: "0.5rem" }}>
-                  ⚠️ Проблемы с геометрией ({invalidDistricts.length} {invalidDistricts.length === 1 ? 'район' : invalidDistricts.length < 5 ? 'района' : 'районов'}):
-                </div>
-                <div style={{ maxHeight: "150px", overflowY: "auto", fontSize: "0.8125rem" }}>
-                  {invalidDistricts.slice(0, 10).map((district, idx) => (
-                    <div key={idx} style={{ marginBottom: "0.25rem" }}>
-                      • <strong>{district.name}</strong>: {district.reason}
-                    </div>
-                  ))}
-                  {invalidDistricts.length > 10 && (
-                    <div style={{ marginTop: "0.5rem", fontStyle: "italic" }}>
-                      ... и еще {invalidDistricts.length - 10} {invalidDistricts.length - 10 === 1 ? 'район' : invalidDistricts.length - 10 < 5 ? 'района' : 'районов'}
-                    </div>
-                  )}
-                </div>
-                <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", opacity: 0.8 }}>
-                  Эти районы не отображаются на карте. Проверьте геометрию в базе данных.
-                </div>
               </div>
             )}
           </div>
 
-          {/* Форма и таблица */}
-          <div>
+          {/* Районы и форма добавления */}
+          <div className="space-y-4">
+            {/* Список районов */}
+            <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4 h-[calc(100vh-420px)] min-h-[250px] max-h-[350px] flex flex-col">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-semibold">Районы ({availableDistricts.length})</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSelectAll}
+                    className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
+                  >
+                    Все
+                  </button>
+                  <button
+                    onClick={handleDeselectAll}
+                    className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
+                  >
+                    Сбросить
+                  </button>
+                </div>
+              </div>
+              
+              <input
+                type="text"
+                value={districtSearch}
+                onChange={(e) => setDistrictSearch(e.target.value)}
+                placeholder="Поиск района..."
+                className="w-full mb-2 rounded-lg border border-slate-700/70 bg-slate-900/80 px-3 py-1.5 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+              />
+              
+              <div className="flex-1 overflow-y-auto space-y-0.5">
+                {availableDistricts.map(district => (
+                  <label
+                    key={district.name}
+                    className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer transition-colors ${
+                      selectedDistricts.includes(district.name)
+                        ? 'bg-sky-500/20 border border-sky-500/40'
+                        : 'hover:bg-slate-800/60 border border-transparent'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDistricts.includes(district.name)}
+                      onChange={() => handleToggleDistrict(district.name)}
+                      className="w-3 h-3 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500/50"
+                    />
+                    <span className="text-xs text-slate-200">{district.name}</span>
+                  </label>
+                ))}
+                {availableDistricts.length === 0 && (
+                  <div className="text-center py-2 text-slate-500 text-xs">
+                    {districtSearch ? "Не найдено" : "Все назначены"}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Форма добавления */}
-            <div
-              style={{
-                background: "#334155",
-                borderRadius: "0.5rem",
-                padding: "1.5rem",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "1rem" }}>
-                Добавить отдел
-              </h2>
+            <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4">
+              <h2 className="text-base font-semibold mb-3">Добавить подразделение</h2>
 
               {formError && (
-                <div
-                  style={{
-                    background: "#ef4444",
-                    padding: "0.75rem",
-                    borderRadius: "0.375rem",
-                    marginBottom: "1rem",
-                    fontSize: "0.875rem",
-                  }}
-                >
+                <div className="mb-3 rounded-lg border border-red-500/60 bg-red-500/10 p-2 text-red-100 text-xs">
                   {formError}
                 </div>
               )}
 
-              <div style={{ marginBottom: "1rem" }}>
-                <label
-                  style={{
-                    display: "block",
-                    marginBottom: "0.5rem",
-                    fontSize: "0.875rem",
-                    fontWeight: "500",
-                  }}
-                >
-                  Название отдела:
-                </label>
+              <div className="mb-3">
                 <input
+                  ref={nameInputRef}
                   type="text"
                   value={departmentName}
-                  onChange={(e) => setDepartmentName(e.target.value)}
-                  placeholder="Например: Отдел №1"
-                  style={{
-                    width: "100%",
-                    padding: "0.5rem",
-                    borderRadius: "0.375rem",
-                    background: "#1e293b",
-                    color: "#fff",
-                    border: "1px solid #475569",
-                  }}
+                  onChange={(e) => { setDepartmentName(e.target.value); setNameError(false); }}
+                  placeholder="Название подразделения"
+                  className={`w-full rounded-lg border bg-slate-900/80 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 ${
+                    nameError 
+                      ? 'border-red-500 focus:ring-red-500/50' 
+                      : 'border-slate-700/70 focus:ring-sky-500/50'
+                  }`}
                 />
+                {nameError && (
+                  <p className="mt-1 text-xs text-red-400">Введите название подразделения</p>
+                )}
               </div>
 
+              {/* Выбранные районы */}
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Выбрано: {selectedDistricts.length}
+                </label>
+                {selectedDistricts.length > 0 ? (
+                  <div className="flex flex-wrap gap-1 p-2 rounded-lg border border-slate-700/70 bg-slate-900/80 max-h-16 overflow-y-auto">
+                    {selectedDistricts.map(name => (
+                      <span 
+                        key={name}
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-500/40 text-xs text-sky-300"
+                      >
+                        {name}
+                        <button
+                          onClick={() => handleToggleDistrict(name)}
+                          className="ml-0.5 hover:text-red-400"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-2 rounded-lg border border-slate-700/70 bg-slate-900/80 text-xs text-slate-500">
+                    Выберите районы на карте или из списка
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={handleAddZone}
                 disabled={saving}
-                style={{
-                  width: "100%",
-                  padding: "0.75rem",
-                  background: saving ? "#475569" : "#3b82f6",
-                  color: "#fff",
-                  borderRadius: "0.375rem",
-                  fontWeight: "600",
-                  cursor: saving ? "not-allowed" : "pointer",
-                  border: "none",
-                }}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-slate-900 shadow-lg shadow-sky-500/40 hover:bg-sky-400 active:scale-[0.98] transition disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {saving ? "Добавление..." : "Добавить"}
+                {saving ? "..." : "Добавить"}
               </button>
-            </div>
-
-            {/* Таблица зон */}
-            <div style={{ background: "#334155", borderRadius: "0.5rem", padding: "1.5rem" }}>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "1rem" }}>
-                Список отделов
-              </h2>
-
-              {loading ? (
-                <div style={{ textAlign: "center", padding: "2rem" }}>Загрузка...</div>
-              ) : zones.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "2rem", color: "#94a3b8" }}>
-                  Нет созданных отделов
-                </div>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid #475569" }}>
-                        <th
-                          style={{
-                            padding: "0.75rem",
-                            textAlign: "left",
-                            fontSize: "0.875rem",
-                            fontWeight: "600",
-                          }}
-                        >
-                          Название отдела
-                        </th>
-                        <th
-                          style={{
-                            padding: "0.75rem",
-                            textAlign: "right",
-                            fontSize: "0.875rem",
-                            fontWeight: "600",
-                          }}
-                        >
-                          Действия
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {zones.map((zone) => (
-                        <tr
-                          key={zone.id}
-                          style={{
-                            borderBottom: "1px solid #475569",
-                          }}
-                        >
-                          <td style={{ padding: "0.75rem" }}>{zone.department_name}</td>
-                          <td style={{ padding: "0.75rem", textAlign: "right" }}>
-                            <button
-                              onClick={() => handleDeleteZone(zone.id)}
-                              style={{
-                                padding: "0.375rem 0.75rem",
-                                background: "#ef4444",
-                                color: "#fff",
-                                borderRadius: "0.375rem",
-                                fontSize: "0.875rem",
-                                cursor: "pointer",
-                                border: "none",
-                              }}
-                            >
-                              Удалить
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           </div>
         </div>
+
+        {/* Таблица зон */}
+        <div className="mt-4 rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-700/60">
+            <h2 className="text-base font-semibold">Назначенные подразделения</h2>
+          </div>
+
+          {loading ? (
+            <div className="p-4 text-center text-slate-300 text-sm">Загрузка...</div>
+          ) : zones.length === 0 ? (
+            <div className="p-4 text-center text-slate-400 text-sm">
+              Нет созданных подразделений
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-800/60">
+                  <tr>
+                    <th 
+                      className="px-4 py-2 text-left text-xs font-semibold text-slate-300 uppercase cursor-pointer hover:text-sky-400 transition-colors"
+                      onClick={() => handleSort('name')}
+                    >
+                      Подразделение {sortField === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className="px-4 py-2 text-left text-xs font-semibold text-slate-300 uppercase cursor-pointer hover:text-sky-400 transition-colors"
+                      onClick={() => handleSort('districts')}
+                    >
+                      Районы {sortField === 'districts' && (sortDir === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="px-4 py-2 text-right text-xs font-semibold text-slate-300 uppercase">
+                      
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {sortedZones.map((zone) => (
+                    <tr key={zone.id} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-slate-100 font-medium">
+                        {zone.department_name}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex flex-wrap gap-1 max-w-xl">
+                          {zone.district_names.length > 0 ? (
+                            zone.district_names.map(name => (
+                              <span
+                                key={name}
+                                className="inline-block px-1.5 py-0.5 rounded bg-green-500/20 border border-green-500/40 text-xs text-green-300"
+                              >
+                                {name}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-500 text-xs">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap text-right">
+                        <button
+                          onClick={() => openDeleteModal(zone)}
+                          className="rounded bg-red-500/20 border border-red-500/40 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/30 hover:border-red-500/60 transition"
+                        >
+                          Удалить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Модальное окно удаления */}
+      {deleteModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeDeleteModal}></div>
+          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white mb-2">Удалить подразделение?</h3>
+            <p className="text-slate-400 text-sm mb-6">
+              Вы уверены, что хотите удалить подразделение <span className="text-white font-medium">«{deleteModal.zoneName}»</span>? Это действие нельзя отменить.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={closeDeleteModal}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition"
+              >
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно успешного удаления */}
+      {successMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSuccessMessage(null)}></div>
+          <div className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                <span className="text-green-400 text-xl">✓</span>
+              </div>
+              <h3 className="text-lg font-semibold text-white">Успешно</h3>
+            </div>
+            <p className="text-slate-300 text-sm mb-6">{successMessage}</p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setSuccessMessage(null)}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

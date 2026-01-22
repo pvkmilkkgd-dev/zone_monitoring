@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import { fetchUsers, createUserByAdmin, updateUserRole, resetUserPassword, updateUserByAdmin, UserDto } from "../api/admin";
 import { requireAuth, handleAuthError, logout } from "../utils/auth";
 
-type UserRole = "admin" | "editor" | "viewer";
+type UserRole = "admin" | "editor_plus" | "editor" | "viewer";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Администратор",
+  editor_plus: "Редактор+",
   editor: "Редактор",
   viewer: "Пользователь",
 };
 
 const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   admin: "Полный доступ ко всем функциям системы",
+  editor_plus: "Расширенные права редактирования с доступом к дополнительным функциям",
   editor: "Может редактировать данные, но не управлять пользователями",
   viewer: "Только просмотр данных без возможности редактирования",
 };
@@ -245,54 +247,57 @@ export function UsersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white px-4 py-4">
       <div className="max-w-7xl mx-auto">
-        {/* Заголовок */}
-        <div className="mb-8">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div className="flex-1">
-              <h1 className="text-3xl lg:text-4xl font-semibold tracking-tight mb-2">Пользователи</h1>
-              <p className="text-sm text-slate-300/90 max-w-2xl">
-                Управление пользователями системы. Создавайте новых пользователей и назначайте им роли: Администраторы, Редакторы, Пользователи.
-              </p>
-            </div>
+        {/* Навигация */}
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
             <button
               type="button"
-              onClick={logout}
-              className="shrink-0 px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
-            >
-              Выход
-            </button>
-          </div>
-
-          {/* Навигация */}
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm w-fit">
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = "/admin";
-              }}
-              className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              onClick={() => { window.location.href = "/admin"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
             >
               Регион и управление
             </button>
             <button
               type="button"
-              className="px-4 py-1.5 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
             >
               Пользователи
             </button>
             <button
               type="button"
-              onClick={() => {
-                window.location.href = "/admin/zones";
-              }}
-              className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              onClick={() => { window.location.href = "/admin/zones"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
             >
               Зоны и устройства
             </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/layers"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Слои
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/events"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              События
+            </button>
           </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+          >
+            Выход
+          </button>
         </div>
+
+        {/* Заголовок */}
+        <h1 className="text-2xl font-semibold tracking-tight mb-3">Пользователи</h1>
 
         {/* Уведомления */}
         {notification && (

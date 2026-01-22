@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin_user
-from app.core.db import get_db
+from app.db.session import get_db
 
 router = APIRouter(prefix="/admin/regions", tags=["admin"])
 

@@ -82,6 +82,8 @@ export function RussiaRegionsMapSvg({
   const [error, setError] = useState<string | null>(null);
   const [currentVB, setCurrentVB] = useState<ViewBox | null>(null);
   const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
+  const initializedRef = useRef(false);
+  const prevTargetVBRef = useRef<ViewBox | null>(null);
 
   useEffect(() => {
     const el = svgRef.current;
@@ -204,26 +206,11 @@ export function RussiaRegionsMapSvg({
 
   const fullVB = useMemo<ViewBox | null>(() => {
     if (!view) return null;
-    
-    // Для общего вида: используем полную ширину карты и увеличиваем высоту для растяжения по вертикали
-    // Ширина остается полной, увеличиваем только высоту viewBox
-    // Отрицательное значение уменьшает высоту viewBox, увеличивая масштаб карты
-    const additionalVerticalPad = view.vbH * -0.2; // Уменьшаем высоту viewBox на 20% для увеличения масштаба
-    
-    // Ширина - полная, карта на всю ширину контейнера
-    const w = view.vbW;
-    // Высота - увеличиваем для растяжения по вертикали
-    const h = view.vbH + additionalVerticalPad;
-    
-    // Центрируем по вертикали
-    const centerY = view.vbH / 2;
-    const y = centerY - h / 2;
-    
     return {
-      x: 0, // Начало по горизонтали - вся карта видна
-      y: y, // Центрируем по вертикали с дополнительным пространством
-      w: w, // Полная ширина - карта занимает всё пространство
-      h: h, // Увеличенная высота для растяжения по вертикали
+      x: 0,
+      y: 0,
+      w: view.vbW,
+      h: view.vbH,
     };
   }, [view]);
 
@@ -291,23 +278,6 @@ export function RussiaRegionsMapSvg({
       vh = (h + pad * 2 * verticalPadMultiplier) * zoomFactor;
     }
 
-    // Адаптируем viewBox под пропорции контейнера, чтобы избежать растяжения
-    // Для больших регионов НЕ применяем horizontalScaleFactor
-    if (svgSize.w > 0 && svgSize.h > 0) {
-      const containerAspect = svgSize.w / svgSize.h;
-      const selectedAspect = vw / vh;
-
-      if (selectedAspect > containerAspect) {
-        // Выбранная область шире контейнера - увеличиваем высоту viewBox
-        vh = vw / containerAspect;
-      } else if (!isLargeRegion) {
-        // Выбранная область уже контейнера - увеличиваем ширину viewBox
-        // Для больших регионов НЕ применяем эту компенсацию
-        const horizontalScaleFactor = 1.2; // Увеличиваем ширину на 20% для компенсации большего горизонтального увеличения
-        vw = vh * containerAspect * horizontalScaleFactor;
-      }
-    }
-    
     // Создаем viewBox с центром на выбранной области
     // Смещаем центр вверх, чтобы регион был выше на карте
     // Увеличиваем координату Y viewBox, чтобы регион поднялся выше
@@ -365,22 +335,42 @@ export function RussiaRegionsMapSvg({
     if (!isFinite(clamped.x) || !isFinite(clamped.y) || clamped.w <= 0 || clamped.h <= 0) return fullVB;
 
     return clamped;
-  }, [selectedRegionIds, paths, view, fullVB, svgSize]);
+  }, [selectedRegionIds, paths, view, fullVB]);
 
+  // Инициализация currentVB только один раз при появлении fullVB
   useEffect(() => {
-    if (fullVB && !currentVB) setCurrentVB(fullVB);
-  }, [fullVB, currentVB]);
+    if (fullVB && !initializedRef.current) {
+      setCurrentVB(fullVB);
+      initializedRef.current = true;
+    }
+  }, [fullVB]);
 
   useEffect(() => {
     if (!targetVB || !currentVB) return;
 
-    const same =
-      Math.abs(currentVB.x - targetVB.x) < 0.001 &&
-      Math.abs(currentVB.y - targetVB.y) < 0.001 &&
-      Math.abs(currentVB.w - targetVB.w) < 0.001 &&
-      Math.abs(currentVB.h - targetVB.h) < 0.001;
+    // Проверяем, изменился ли targetVB по сравнению с предыдущим значением
+    const prev = prevTargetVBRef.current;
+    if (prev) {
+      const prevSame =
+        Math.abs(prev.x - targetVB.x) < 0.001 &&
+        Math.abs(prev.y - targetVB.y) < 0.001 &&
+        Math.abs(prev.w - targetVB.w) < 0.001 &&
+        Math.abs(prev.h - targetVB.h) < 0.001;
+      
+      if (prevSame) {
+        // targetVB не изменился, проверяем текущее состояние
+        const currentSame =
+          Math.abs(currentVB.x - targetVB.x) < 0.001 &&
+          Math.abs(currentVB.y - targetVB.y) < 0.001 &&
+          Math.abs(currentVB.w - targetVB.w) < 0.001 &&
+          Math.abs(currentVB.h - targetVB.h) < 0.001;
+        
+        if (currentSame) return; // Уже достигли целевого состояния
+      }
+    }
 
-    if (same) return;
+    // Сохраняем текущий targetVB для следующей проверки
+    prevTargetVBRef.current = targetVB;
 
     const prefersReduced =
       typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -419,7 +409,7 @@ export function RussiaRegionsMapSvg({
 
   // Для общего вида используем "none" чтобы карта растягивалась по вертикали без сохранения пропорций
   // Для выбранных регионов тоже используем "none", так как viewBox уже адаптирован под пропорции контейнера
-  const preserveAspectRatioValue = "none";
+  const preserveAspectRatioValue = "xMidYMid meet";
 
   if (error) {
     return (

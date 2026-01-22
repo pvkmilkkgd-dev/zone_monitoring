@@ -6,6 +6,8 @@ import AdminProfilePage from "./pages/AdminProfilePage";
 import { AdminSettingsPage } from "./pages/AdminSettingsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { ZonesAndDevicesPage } from "./pages/ZonesAndDevicesPage";
+import { LayersPage } from "./pages/LayersPage";
+import { EventsPage } from "./pages/EventsPage";
 
 function App() {
   const path = window.location.pathname;
@@ -14,6 +16,8 @@ function App() {
   if (path === "/admin/profile") return <AdminProfilePage />;
   if (path === "/admin/users" || path === "/admin/users/") return <UsersPage />;
   if (path === "/admin/zones" || path === "/admin/zones/") return <ZonesAndDevicesPage />;
+  if (path === "/admin/layers" || path === "/admin/layers/") return <LayersPage />;
+  if (path === "/admin/events" || path === "/admin/events/") return <EventsPage />;
 
   // 🔥 ВАЖНО: делаем /admin и /admin/ одинаковыми
   if (path === "/admin" || path === "/admin/") {

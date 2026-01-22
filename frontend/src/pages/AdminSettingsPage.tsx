@@ -158,8 +158,60 @@ export function AdminSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white flex items-center justify-center px-4 py-8">
-      <div className="max-w-7xl w-full flex flex-col lg:flex-row gap-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 text-white px-4 py-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Навигация */}
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
+            <button
+              type="button"
+              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+            >
+              Регион и управление
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/users"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Пользователи
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/zones"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Зоны и устройства
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/layers"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              Слои
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/admin/events"; }}
+              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+            >
+              События
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+          >
+            Выход
+          </button>
+        </div>
+
+        {/* Заголовок */}
+        <h1 className="text-2xl font-semibold tracking-tight mb-3">Настройки системы</h1>
+      </div>
+
+      <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-6">
         {/* Левая панель */}
         <div className="relative overflow-hidden rounded-3xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur lg:flex-1 min-w-0">
           <div className="pointer-events-none absolute inset-0 opacity-20">
@@ -169,55 +221,11 @@ export function AdminSettingsPage() {
           </div>
 
           <div className="relative space-y-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-2xl lg:text-3xl font-semibold tracking-tight">Настройки системы</h1>
-                <p className="mt-2 text-sm text-slate-300/90 max-w-xl">
-                  Внутренний сервис мониторинга обстановки. Укажите название вашего управления и выберите один или
-                  несколько регионов, за которые отвечает система мониторинга.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={logout}
-                className="shrink-0 px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
-              >
-                Выход
-              </button>
-            </div>
-
             {error && (
               <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-3 py-2 text-xs text-red-100">
                 {error}
               </div>
             )}
-
-            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm w-fit">
-              <button
-                type="button"
-                className="px-4 py-1.5 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-              >
-                Регион и управление
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/admin/users";
-                }}
-                className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-              >
-                Пользователи
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/admin/zones";
-                }}
-                className="px-4 py-1.5 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-              >
-                Зоны и устройства
-              </button>
-            </div>
 
             {loading ? (
               <div className="py-10 text-sm text-slate-300">Загрузка настроек…</div>
@@ -291,7 +299,7 @@ export function AdminSettingsPage() {
 
                     {/* Список регионов */}
                     <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
-                      <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
+                      <div className="max-h-[calc(100vh-400px)] min-h-[300px] overflow-y-auto divide-y divide-slate-800">
                         {regionsLoading ? (
                           <div className="px-3 py-3 text-sm text-slate-300">Загрузка списка регионов…</div>
                         ) : (
