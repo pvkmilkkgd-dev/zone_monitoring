@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef, useMemo } from "react";
-import { requireAuth, handleAuthError, logout } from "../utils/auth";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { requireEditor, handleAuthError, logout, isAdmin, canEditEvent } from "../utils/auth";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { fetchSystemSettings } from "../api/admin";
 import { getAdministrativeZones, type AdministrativeZone } from "../api/administrative-zones";
-import { getEvents, getEvent, createEvent, deleteEvent, type EventListItem, type EventDetail } from "../api/events";
+import { getEvents, getEvent, createEvent, updateEvent, deleteEvent, type EventListItem, type EventDetail } from "../api/events";
 import { getLayers, type Layer } from "../api/layers";
 
 type District = {
@@ -52,9 +53,19 @@ export function EventsPage() {
     open: false, eventTitle: ""
   });
   
-  // Модальное окно просмотра события
+  // Модальное окно просмотра/редактирования события
   const [viewEvent, setViewEvent] = useState<EventDetail | null>(null);
   const [loadingEvent, setLoadingEvent] = useState(false);
+  const [isEditingEvent, setIsEditingEvent] = useState(false);
+  const [editEventData, setEditEventData] = useState<{
+    title: string;
+    description: string;
+    importance: number;
+    status: string;
+    layerValue: string;
+    districtName: string;
+  }>({ title: '', description: '', importance: 5, status: 'warning', layerValue: '', districtName: '' });
+  const [savingEvent, setSavingEvent] = useState(false);
 
   // Словарь статусов на русском
   const STATUS_LABELS: Record<string, string> = {
@@ -63,10 +74,35 @@ export function EventsPage() {
     alert: "Тревога",
   };
 
+  // Функции закрытия модальных окон (для useEscapeKey)
+  const closeViewEvent = useCallback(() => {
+    setViewEvent(null);
+    setIsEditingEvent(false);
+  }, []);
+
+  const closeDeleteModalCallback = useCallback(() => {
+    setDeleteModal({ open: false, eventId: null, eventTitle: "" });
+  }, []);
+
+  const closeDeleteSuccessModal = useCallback(() => {
+    setDeleteSuccessModal({ open: false, eventTitle: "" });
+  }, []);
+
+  const closeCreateSuccessModal = useCallback(() => {
+    setCreateSuccessModal({ open: false, eventTitle: "" });
+  }, []);
+
+  // Закрытие модальных окон по Escape
+  useEscapeKey(viewEvent !== null, closeViewEvent);
+  useEscapeKey(deleteModal.open, closeDeleteModalCallback);
+  useEscapeKey(deleteSuccessModal.open, closeDeleteSuccessModal);
+  useEscapeKey(createSuccessModal.open, closeCreateSuccessModal);
+
   // Загрузка деталей события
   const handleViewEvent = async (eventId: number) => {
     try {
       setLoadingEvent(true);
+      setIsEditingEvent(false);
       const detail = await getEvent(eventId);
       setViewEvent(detail);
     } catch (e: any) {
@@ -75,6 +111,121 @@ export function EventsPage() {
     } finally {
       setLoadingEvent(false);
     }
+  };
+
+  // Получить название слоя по ID
+  const getLayerName = (layerId: number | null, subLayerId: number | null, subSubLayerId: number | null): string => {
+    if (!layerId && !subLayerId && !subSubLayerId) return "Не указан";
+    
+    for (const layer of layers) {
+      if (subSubLayerId) {
+        for (const sub of layer.sub_layers || []) {
+          for (const subSub of sub.sub_sub_layers || []) {
+            if (subSub.id === subSubLayerId) {
+              return `${layer.name} → ${sub.name} → ${subSub.name}`;
+            }
+          }
+        }
+      }
+      if (subLayerId) {
+        for (const sub of layer.sub_layers || []) {
+          if (sub.id === subLayerId) {
+            return `${layer.name} → ${sub.name}`;
+          }
+        }
+      }
+      if (layer.id === layerId) {
+        return layer.name;
+      }
+    }
+    return "Не найден";
+  };
+
+  // Начать редактирование события
+  const startEditingEvent = () => {
+    if (!viewEvent) return;
+    
+    // Определяем текущее значение слоя
+    let layerValue = '';
+    if (viewEvent.sub_sub_layer_id) {
+      layerValue = `subsub_${viewEvent.sub_sub_layer_id}`;
+    } else if (viewEvent.sub_layer_id) {
+      layerValue = `sub_${viewEvent.sub_layer_id}`;
+    } else if (viewEvent.layer_id) {
+      layerValue = `layer_${viewEvent.layer_id}`;
+    }
+    
+    setEditEventData({
+      title: viewEvent.title,
+      description: viewEvent.description || '',
+      importance: viewEvent.importance,
+      status: viewEvent.status,
+      layerValue,
+      districtName: viewEvent.district_name || '',
+    });
+    setIsEditingEvent(true);
+  };
+
+  // Сохранить изменения события
+  const saveEventChanges = async () => {
+    if (!viewEvent) return;
+    
+    if (!editEventData.title.trim()) {
+      setFormError("Введите название события");
+      return;
+    }
+    
+    if (!editEventData.districtName) {
+      setFormError("Выберите район");
+      return;
+    }
+    
+    // Парсим значение слоя
+    let layerId: number | null = null;
+    let subLayerId: number | null = null;
+    let subSubLayerId: number | null = null;
+    
+    if (editEventData.layerValue) {
+      const [type, id] = editEventData.layerValue.split('_');
+      const numId = parseInt(id);
+      if (type === 'layer') layerId = numId;
+      else if (type === 'sub') subLayerId = numId;
+      else if (type === 'subsub') subSubLayerId = numId;
+    }
+    
+    setSavingEvent(true);
+    try {
+      const updated = await updateEvent(viewEvent.id, {
+        title: editEventData.title.trim(),
+        description: editEventData.description.trim() || null,
+        importance: editEventData.importance,
+        status: editEventData.status,
+        district_name: editEventData.districtName,
+        layer_id: layerId,
+        sub_layer_id: subLayerId,
+        sub_sub_layer_id: subSubLayerId,
+      });
+      
+      setViewEvent(updated);
+      setIsEditingEvent(false);
+      
+      // Обновляем список событий
+      const updatedEvents = await getEvents();
+      setEvents(updatedEvents);
+      
+      setCreateSuccessModal({ open: true, eventTitle: updated.title });
+    } catch (e: any) {
+      console.error(e);
+      if (handleAuthError(e)) return;
+      setFormError(e.message || "Ошибка при сохранении события");
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  // Отменить редактирование
+  const cancelEditingEvent = () => {
+    setIsEditingEvent(false);
   };
   
   // Refs для файловых инпутов
@@ -92,7 +243,7 @@ export function EventsPage() {
   }, [selectedDistrict, zones]);
 
   useEffect(() => {
-    if (!requireAuth()) return;
+    if (!requireEditor()) return;
     loadInitialData();
   }, []);
 
@@ -279,48 +430,73 @@ export function EventsPage() {
       <div className="max-w-7xl mx-auto">
         {/* Навигация */}
         <div className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Регион и управление
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/zones"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Зоны и устройства
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/layers"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Слои
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-            >
-              События
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/situation"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Обстановка
-            </button>
+          <div className="flex items-center gap-3 text-sm">
+            {/* Группа 1: Регион, Зоны, Пользователи, Журналирование (только для админов) */}
+            {isAdmin() && (
+              <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = "/admin"; }}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Регион и управление
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = "/admin/zones"; }}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Зоны и устройства
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = "/admin/users"; }}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Пользователи
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { window.location.href = "/admin/journal"; }}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Журналирование
+                </button>
+              </div>
+            )}
+            {/* Группа 2: Слои, События */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/layers"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Слои
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                События
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/reports"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Отчёты
+              </button>
+            </div>
+            {/* Группа 3: Обстановка */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/situation"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Обстановка
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -389,74 +565,73 @@ export function EventsPage() {
               </div>
               
               {/* Выбор слоя */}
-              {layers.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Привязка к слою (опционально)</label>
-                  <select
-                    value={selectedSubSubLayerId ? `subsub_${selectedSubSubLayerId}` : selectedSubLayerId ? `sub_${selectedSubLayerId}` : selectedLayerId ? `layer_${selectedLayerId}` : ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (!value) {
-                        setSelectedLayerId(null);
-                        setSelectedSubLayerId(null);
-                        setSelectedSubSubLayerId(null);
-                      } else if (value.startsWith('layer_')) {
-                        setSelectedLayerId(parseInt(value.replace('layer_', '')));
-                        setSelectedSubLayerId(null);
-                        setSelectedSubSubLayerId(null);
-                      } else if (value.startsWith('sub_')) {
-                        setSelectedSubLayerId(parseInt(value.replace('sub_', '')));
-                        setSelectedSubSubLayerId(null);
-                        // Найти родительский layer
-                        const subId = parseInt(value.replace('sub_', ''));
-                        for (const layer of layers) {
-                          const sub = layer.sub_layers.find(s => s.id === subId);
-                          if (sub) {
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Привязка к слою (опционально)</label>
+                <select
+                  value={selectedSubSubLayerId ? `subsub_${selectedSubSubLayerId}` : selectedSubLayerId ? `sub_${selectedSubLayerId}` : selectedLayerId ? `layer_${selectedLayerId}` : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (!value) {
+                      setSelectedLayerId(null);
+                      setSelectedSubLayerId(null);
+                      setSelectedSubSubLayerId(null);
+                    } else if (value.startsWith('layer_')) {
+                      setSelectedLayerId(parseInt(value.replace('layer_', '')));
+                      setSelectedSubLayerId(null);
+                      setSelectedSubSubLayerId(null);
+                    } else if (value.startsWith('sub_')) {
+                      setSelectedSubLayerId(parseInt(value.replace('sub_', '')));
+                      setSelectedSubSubLayerId(null);
+                      // Найти родительский layer
+                      const subId = parseInt(value.replace('sub_', ''));
+                      for (const layer of layers) {
+                        const sub = layer.sub_layers.find(s => s.id === subId);
+                        if (sub) {
+                          setSelectedLayerId(layer.id);
+                          break;
+                        }
+                      }
+                    } else if (value.startsWith('subsub_')) {
+                      const subSubId = parseInt(value.replace('subsub_', ''));
+                      setSelectedSubSubLayerId(subSubId);
+                      // Найти родительские слои
+                      for (const layer of layers) {
+                        for (const sub of layer.sub_layers) {
+                          const subSub = sub.sub_sub_layers?.find(ss => ss.id === subSubId);
+                          if (subSub) {
                             setSelectedLayerId(layer.id);
+                            setSelectedSubLayerId(sub.id);
                             break;
                           }
                         }
-                      } else if (value.startsWith('subsub_')) {
-                        const subSubId = parseInt(value.replace('subsub_', ''));
-                        setSelectedSubSubLayerId(subSubId);
-                        // Найти родительские слои
-                        for (const layer of layers) {
-                          for (const sub of layer.sub_layers) {
-                            const subSub = sub.sub_sub_layers?.find(ss => ss.id === subSubId);
-                            if (subSub) {
-                              setSelectedLayerId(layer.id);
-                              setSelectedSubLayerId(sub.id);
-                              break;
-                            }
-                          }
-                        }
                       }
-                    }}
-                    className="w-full rounded-lg border border-slate-700/70 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-                  >
-                    <option value="" className="bg-slate-800">Без привязки к слою</option>
-                    {layers.map((layer) => (
-                      <optgroup key={layer.id} label={layer.name} className="bg-slate-800">
-                        <option value={`layer_${layer.id}`} className="bg-slate-800 text-sky-400">
-                          {layer.name}
-                        </option>
-                        {layer.sub_layers.map((sub) => (
-                          <>
-                            <option key={sub.id} value={`sub_${sub.id}`} className="bg-slate-800 text-emerald-400 pl-4">
-                              &nbsp;&nbsp;↳ {sub.name}
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-700/70 bg-slate-800 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                  disabled={layers.length === 0}
+                >
+                  <option value="" className="bg-slate-800">{layers.length === 0 ? "Слои не созданы" : "Без привязки к слою"}</option>
+                  {layers.map((layer) => (
+                    <React.Fragment key={layer.id}>
+                      <option value={`layer_${layer.id}`} className="bg-slate-800">
+                        {layer.name}
+                      </option>
+                      {(layer.sub_layers || []).map((sub) => (
+                        <React.Fragment key={sub.id}>
+                          <option value={`sub_${sub.id}`} className="bg-slate-800">
+                            &nbsp;&nbsp;↳ {sub.name}
+                          </option>
+                          {(sub.sub_sub_layers || []).map((subSub) => (
+                            <option key={subSub.id} value={`subsub_${subSub.id}`} className="bg-slate-800">
+                              &nbsp;&nbsp;&nbsp;&nbsp;↳↳ {subSub.name}
                             </option>
-                            {(sub.sub_sub_layers || []).map((subSub) => (
-                              <option key={subSub.id} value={`subsub_${subSub.id}`} className="bg-slate-800 text-violet-400 pl-8">
-                                &nbsp;&nbsp;&nbsp;&nbsp;↳ {subSub.name}
-                              </option>
-                            ))}
-                          </>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-              )}
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </select>
+              </div>
               
               {/* Название события */}
               <div>
@@ -588,13 +763,27 @@ export function EventsPage() {
                           </p>
                           <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-slate-500 text-[10px]">
-                              {new Date(event.created_at).toLocaleDateString("ru-RU")} {new Date(event.created_at).toLocaleTimeString("ru-RU", { hour: '2-digit', minute: '2-digit' })}
+                              Создано: {new Date(event.created_at).toLocaleDateString("ru-RU")} {new Date(event.created_at).toLocaleTimeString("ru-RU", { hour: '2-digit', minute: '2-digit' })}
                             </span>
                             {event.created_by_name && (
                               <span className="text-emerald-400 text-[10px]">
                                 {event.created_by_name}
                               </span>
                             )}
+                          </div>
+                          {event.updated_at && (
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-orange-400/70 text-[10px]">
+                                Изменено: {new Date(event.updated_at).toLocaleDateString("ru-RU")} {new Date(event.updated_at).toLocaleTimeString("ru-RU", { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {event.updated_by_name && (
+                                <span className="text-orange-400 text-[10px]">
+                                  {event.updated_by_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
                             {event.images_count > 0 && (
                               <span className="text-sky-400 text-[10px]">📷 {event.images_count}</span>
                             )}
@@ -604,12 +793,14 @@ export function EventsPage() {
                           </div>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openDeleteModal(event.id, event.title); }}
-                        className="shrink-0 px-2 py-1 rounded text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                      >
-                        ✕
-                      </button>
+                      {canEditEvent(event.created_by_id) && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openDeleteModal(event.id, event.title); }}
+                          className="shrink-0 px-2 py-1 rounded text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -621,8 +812,14 @@ export function EventsPage() {
 
       {/* Модальное окно подтверждения удаления */}
       {deleteModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={closeDeleteModal}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="text-lg font-semibold mb-2">Подтверждение удаления</h3>
             <p className="text-sm text-slate-300 mb-4">
               Вы уверены, что хотите удалить событие "{deleteModal.eventTitle}"? 
@@ -653,128 +850,312 @@ export function EventsPage() {
         </div>
       )}
 
-      {/* Модальное окно просмотра события */}
+      {/* Модальное окно просмотра/редактирования события */}
       {viewEvent && !loadingEvent && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setViewEvent(null)}
+          onClick={() => { setViewEvent(null); setIsEditingEvent(false); }}
         >
           <div 
             className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium border ${getImportanceBg(viewEvent.importance)}`}>
-                  Важность: {viewEvent.importance}
-                </span>
-                <h3 className="text-xl font-semibold">{viewEvent.title}</h3>
-              </div>
-              <button
-                onClick={() => setViewEvent(null)}
-                className="text-slate-400 hover:text-slate-200 text-2xl leading-none shrink-0"
-              >
-                ×
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-slate-500">Район:</span>
-                  <p className="text-slate-200">{viewEvent.district_name || "—"}</p>
+            {!isEditingEvent ? (
+              /* Режим просмотра */
+              <>
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium border ${getImportanceBg(viewEvent.importance)}`}>
+                      Важность: {viewEvent.importance}
+                    </span>
+                    <h3 className="text-xl font-semibold">{viewEvent.title}</h3>
+                  </div>
+                  <button
+                    onClick={() => { setViewEvent(null); setIsEditingEvent(false); }}
+                    className="text-slate-400 hover:text-slate-200 text-2xl leading-none shrink-0"
+                  >
+                    ×
+                  </button>
                 </div>
-                <div>
-                  <span className="text-slate-500">Подразделение:</span>
-                  <p className="text-slate-200">{viewEvent.department_name || "Не назначено"}</p>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-slate-500">Район:</span>
+                      <p className="text-slate-200">{viewEvent.district_name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Подразделение:</span>
+                      <p className="text-slate-200">{viewEvent.department_name || "Не назначено"}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Дата создания:</span>
+                      <p className="text-slate-200">{new Date(viewEvent.created_at).toLocaleString("ru-RU")}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Статус:</span>
+                      <p className="text-slate-200">{STATUS_LABELS[viewEvent.status] || viewEvent.status}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Создал:</span>
+                      <p className="text-slate-200">{viewEvent.created_by_name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Слой:</span>
+                      <p className="text-slate-200">{getLayerName(viewEvent.layer_id, viewEvent.sub_layer_id, viewEvent.sub_sub_layer_id)}</p>
+                    </div>
+                    {viewEvent.updated_at && (
+                      <>
+                        <div>
+                          <span className="text-slate-500">Изменил:</span>
+                          <p className="text-slate-200">{viewEvent.updated_by_name || "—"}</p>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Дата изменения:</span>
+                          <p className="text-slate-200">{new Date(viewEvent.updated_at).toLocaleString("ru-RU")}</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  {viewEvent.description && (
+                    <div>
+                      <span className="text-slate-500 text-sm">Описание:</span>
+                      <p className="text-slate-200 mt-1 whitespace-pre-wrap bg-slate-800/50 rounded-lg p-3 text-sm">
+                        {viewEvent.description}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Изображения */}
+                  {viewEvent.images && viewEvent.images.length > 0 && (
+                    <div>
+                      <span className="text-slate-500 text-sm">Изображения ({viewEvent.images.length}):</span>
+                      <div className="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {viewEvent.images.map(img => (
+                          <a
+                            key={img.id}
+                            href={`http://localhost:8000${img.file_path}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block aspect-square rounded-lg overflow-hidden border border-slate-700 hover:border-sky-500 transition-colors"
+                          >
+                            <img
+                              src={`http://localhost:8000${img.file_path}`}
+                              alt={img.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Документы */}
+                  {viewEvent.documents && viewEvent.documents.length > 0 && (
+                    <div>
+                      <span className="text-slate-500 text-sm">Документы ({viewEvent.documents.length}):</span>
+                      <div className="mt-2 space-y-1">
+                        {viewEvent.documents.map(doc => (
+                          <a
+                            key={doc.id}
+                            href={`http://localhost:8000${doc.file_path}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors text-sm text-sky-300 hover:text-sky-200"
+                          >
+                            📄 {doc.name}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <span className="text-slate-500">Дата создания:</span>
-                  <p className="text-slate-200">{new Date(viewEvent.created_at).toLocaleString("ru-RU")}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500">Статус:</span>
-                  <p className="text-slate-200">{STATUS_LABELS[viewEvent.status] || viewEvent.status}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500">Создал:</span>
-                  <p className="text-slate-200">{viewEvent.created_by_name || "—"}</p>
-                </div>
-              </div>
-              
-              {viewEvent.description && (
-                <div>
-                  <span className="text-slate-500 text-sm">Описание:</span>
-                  <p className="text-slate-200 mt-1 whitespace-pre-wrap bg-slate-800/50 rounded-lg p-3 text-sm">
-                    {viewEvent.description}
-                  </p>
-                </div>
-              )}
-              
-              {/* Изображения */}
-              {viewEvent.images && viewEvent.images.length > 0 && (
-                <div>
-                  <span className="text-slate-500 text-sm">Изображения ({viewEvent.images.length}):</span>
-                  <div className="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2">
-                    {viewEvent.images.map(img => (
-                      <a
-                        key={img.id}
-                        href={`http://localhost:8000${img.file_path}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block aspect-square rounded-lg overflow-hidden border border-slate-700 hover:border-sky-500 transition-colors"
+                
+                <div className="mt-6 flex justify-end gap-3">
+                  {canEditEvent(viewEvent.created_by_id) && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const id = viewEvent.id;
+                          const title = viewEvent.title;
+                          setViewEvent(null);
+                          setIsEditingEvent(false);
+                          openDeleteModal(id, title);
+                        }}
+                        className="px-4 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
                       >
-                        <img
-                          src={`http://localhost:8000${img.file_path}`}
-                          alt={img.name}
-                          className="w-full h-full object-cover"
-                        />
-                      </a>
-                    ))}
+                        Удалить
+                      </button>
+                      <button
+                        onClick={startEditingEvent}
+                        className="px-4 py-2 rounded-lg text-sm bg-sky-500 text-white hover:bg-sky-600 transition-colors"
+                      >
+                        Редактировать
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => { setViewEvent(null); setIsEditingEvent(false); }}
+                    className="px-4 py-2 rounded-lg text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
+                  >
+                    Закрыть
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Режим редактирования */
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">Редактирование события</h3>
+                  <button
+                    onClick={() => { setViewEvent(null); setIsEditingEvent(false); }}
+                    className="text-slate-400 hover:text-slate-200 text-2xl leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  {/* Название */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Название события</label>
+                    <input
+                      type="text"
+                      value={editEventData.title}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                    />
+                  </div>
+                  
+                  {/* Важность */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Важность: {editEventData.importance}</label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={editEventData.importance}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, importance: parseInt(e.target.value) }))}
+                      className="w-full"
+                    />
+                  </div>
+                  
+                  {/* Статус */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Статус</label>
+                    <select
+                      value={editEventData.status}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, status: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                    >
+                      <option value="ok">В норме</option>
+                      <option value="warning">Внимание</option>
+                      <option value="alert">Тревога</option>
+                    </select>
+                  </div>
+                  
+                  {/* Район */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Район</label>
+                    <select
+                      value={editEventData.districtName}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, districtName: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                    >
+                      <option value="">Выберите район</option>
+                      {allDistricts.map((d) => (
+                        <option key={d.name} value={d.name}>{d.name}</option>
+                      ))}
+                    </select>
+                    {editEventData.districtName && (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Подразделение: {zones.find(z => (z.district_names || []).includes(editEventData.districtName))?.department_name || "Не назначено"}
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Слой */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Слой</label>
+                    <select
+                      value={editEventData.layerValue}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, layerValue: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                    >
+                      <option value="">Не указан</option>
+                      {layers.map((layer) => (
+                        <React.Fragment key={layer.id}>
+                          <option value={`layer_${layer.id}`}>{layer.name}</option>
+                          {(layer.sub_layers || []).map((sub) => (
+                            <React.Fragment key={sub.id}>
+                              <option value={`sub_${sub.id}`}>&nbsp;&nbsp;↳ {sub.name}</option>
+                              {(sub.sub_sub_layers || []).map((subSub) => (
+                                <option key={subSub.id} value={`subsub_${subSub.id}`}>
+                                  &nbsp;&nbsp;&nbsp;&nbsp;↳↳ {subSub.name}
+                                </option>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {/* Описание */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Описание</label>
+                    <textarea
+                      value={editEventData.description}
+                      onChange={(e) => setEditEventData(prev => ({ ...prev, description: e.target.value }))}
+                      rows={4}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 resize-none"
+                      placeholder="Введите описание события"
+                    />
+                  </div>
+                  
+                  {/* Информация (только для чтения) */}
+                  <div className="grid grid-cols-2 gap-4 text-sm p-3 bg-slate-800/50 rounded-lg">
+                    <div>
+                      <span className="text-slate-500">Создал:</span>
+                      <p className="text-slate-300">{viewEvent.created_by_name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Дата создания:</span>
+                      <p className="text-slate-300">{new Date(viewEvent.created_at).toLocaleString("ru-RU")}</p>
+                    </div>
+                    {viewEvent.updated_at && (
+                      <>
+                        <div>
+                          <span className="text-slate-500">Изменил:</span>
+                          <p className="text-slate-300">{viewEvent.updated_by_name || "—"}</p>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Дата изменения:</span>
+                          <p className="text-slate-300">{new Date(viewEvent.updated_at).toLocaleString("ru-RU")}</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
-              
-              {/* Документы */}
-              {viewEvent.documents && viewEvent.documents.length > 0 && (
-                <div>
-                  <span className="text-slate-500 text-sm">Документы ({viewEvent.documents.length}):</span>
-                  <div className="mt-2 space-y-1">
-                    {viewEvent.documents.map(doc => (
-                      <a
-                        key={doc.id}
-                        href={`http://localhost:8000${doc.file_path}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/50 hover:bg-slate-800 transition-colors text-sm text-sky-300 hover:text-sky-200"
-                      >
-                        📄 {doc.name}
-                      </a>
-                    ))}
-                  </div>
+                
+                <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-700">
+                  <button
+                    onClick={cancelEditingEvent}
+                    className="px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={saveEventChanges}
+                    disabled={savingEvent || !editEventData.title.trim()}
+                    className="px-4 py-2 rounded-lg text-sm bg-sky-500 text-white hover:bg-sky-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingEvent ? 'Сохранение...' : 'Сохранить'}
+                  </button>
                 </div>
-              )}
-            </div>
-            
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  const id = viewEvent.id;
-                  const title = viewEvent.title;
-                  setViewEvent(null);
-                  openDeleteModal(id, title);
-                }}
-                className="px-4 py-2 rounded-lg text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-              >
-                Удалить
-              </button>
-              <button
-                onClick={() => setViewEvent(null)}
-                className="px-4 py-2 rounded-lg text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
-              >
-                Закрыть
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}

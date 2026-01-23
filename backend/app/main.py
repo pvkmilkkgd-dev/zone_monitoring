@@ -15,6 +15,8 @@ from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.administrative_zones import router as administrative_zones_router
 from app.api.v1.routes.events import router as events_router
 from app.api.v1.routes.layers import router as layers_router
+from app.api.v1.routes.district_descriptions import router as district_descriptions_router
+from app.api.v1.routes.audit import router as audit_router
 from app.core.bootstrap import require_bootstrap_completed
 from app.core.exceptions import (
     validation_exception_handler,
@@ -59,6 +61,22 @@ def ping():
     return {"status": "ok"}
 
 
+@app.on_event("startup")
+async def startup_cleanup_audit_logs():
+    """Очистка старых записей журнала при запуске сервера."""
+    from app.db.session import SessionLocal
+    from app.services.audit_service import cleanup_audit_logs
+    
+    try:
+        db = SessionLocal()
+        deleted = cleanup_audit_logs(db, days=90)
+        if deleted > 0:
+            logger.info(f"Очищено {deleted} старых записей журнала (старше 90 дней)")
+        db.close()
+    except Exception as e:
+        logger.error(f"Ошибка очистки журнала: {e}")
+
+
 # --- API ---
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(
@@ -74,6 +92,8 @@ app.include_router(admin_regions_router, prefix="/api/v1")
 app.include_router(administrative_zones_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
 app.include_router(layers_router, prefix="/api/v1")
+app.include_router(district_descriptions_router, prefix="/api/v1/district-descriptions", tags=["district-descriptions"])
+app.include_router(audit_router, prefix="/api/v1")
 
 # --- FRONT (Vite build) ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

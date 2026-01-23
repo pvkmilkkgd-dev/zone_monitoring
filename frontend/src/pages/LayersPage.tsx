@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import {
   DndContext,
   closestCenter,
@@ -16,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { requireAuth, handleAuthError, logout } from "../utils/auth";
+import { requireEditor, handleAuthError, logout, isAdmin } from "../utils/auth";
 import {
   getLayers,
   createLayer,
@@ -389,8 +390,23 @@ export function LayersPage() {
   const [expandedLayers, setExpandedLayers] = useState<Set<number>>(new Set());
   const [expandedSubLayers, setExpandedSubLayers] = useState<Set<number>>(new Set());
 
+  // Закрытие модальных окон по Escape
+  const closeAddModalCallback = useCallback(() => {
+    setAddModal({ open: false, type: 'layer', parentId: null, editItem: null });
+    setAddName('');
+    setAddError(null);
+  }, []);
+  const closeDeleteModalCallback = useCallback(() => {
+    setDeleteModal({ open: false, type: 'layer', id: null, name: '' });
+  }, []);
+  const closeSuccessMessage = useCallback(() => setSuccessMessage(null), []);
+
+  useEscapeKey(addModal.open, closeAddModalCallback);
+  useEscapeKey(deleteModal.open, closeDeleteModalCallback);
+  useEscapeKey(successMessage !== null, closeSuccessMessage);
+
   useEffect(() => {
-    if (!requireAuth()) return;
+    if (!requireEditor()) return;
     loadLayers();
   }, []);
 
@@ -700,49 +716,73 @@ export function LayersPage() {
       <div className="max-w-7xl mx-auto">
         {/* Навигация */}
         <div className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin")}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Регион и управление
-            </button>
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin/zones")}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Зоны и устройства
-            </button>
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin/layers")}
-              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-            >
-              Слои
-            </button>
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin/events")}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              События
-            </button>
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin/users")}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
-              onClick={() => (window.location.href = "/admin/situation")}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Обстановка
-            </button>
+          <div className="flex items-center gap-3 text-sm">
+            {/* Группа 1: Регион, Зоны, Пользователи, Журналирование (только для админов) */}
+            {isAdmin() && (
+              <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/admin")}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Регион и управление
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/admin/zones")}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Зоны и устройства
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/admin/users")}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Пользователи
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (window.location.href = "/admin/journal")}
+                  className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+                >
+                  Журналирование
+                </button>
+              </div>
+            )}
+            {/* Группа 2: Слои, События */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                Слои
+              </button>
+              <button
+                type="button"
+                onClick={() => (window.location.href = "/editor/events")}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                События
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/reports"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Отчёты
+              </button>
+            </div>
+            {/* Группа 3: Обстановка */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => (window.location.href = "/situation")}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Обстановка
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

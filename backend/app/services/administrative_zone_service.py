@@ -12,16 +12,17 @@ class AdministrativeZoneService:
         self.db = db
 
     def list_zones(self, map_id: Optional[int] = None) -> List[AdministrativeZone]:
-        """Получить список всех административных зон или по конкретной карте."""
-        query = self.db.query(AdministrativeZone)
+        """Получить список всех административных зон или по конкретной карте (без удалённых)."""
+        query = self.db.query(AdministrativeZone).filter(AdministrativeZone.is_deleted == False)
         if map_id:
             query = query.filter(AdministrativeZone.map_id == map_id)
         return query.order_by(AdministrativeZone.id.desc()).all()
 
     def get_zone(self, zone_id: int) -> Optional[AdministrativeZone]:
-        """Получить административную зону по ID."""
+        """Получить административную зону по ID (не удалённую)."""
         return self.db.query(AdministrativeZone).filter(
-            AdministrativeZone.id == zone_id
+            AdministrativeZone.id == zone_id,
+            AdministrativeZone.is_deleted == False
         ).first()
 
     def create_zone(self, zone_data: AdministrativeZoneCreate) -> AdministrativeZone:
@@ -53,11 +54,12 @@ class AdministrativeZoneService:
         return zone
 
     def delete_zone(self, zone_id: int) -> bool:
-        """Удалить административную зону."""
+        """Мягкое удаление административной зоны."""
         zone = self.get_zone(zone_id)
         if not zone:
             return False
         
-        self.db.delete(zone)
+        # Мягкое удаление
+        zone.is_deleted = True
         self.db.commit()
         return True

@@ -14,6 +14,15 @@ export type EventDocument = {
   created_at: string;
 };
 
+export type EventComment = {
+  id: number;
+  event_id: number;
+  user_id: number | null;
+  user_name: string | null;
+  text: string;
+  created_at: string;
+};
+
 export type EventListItem = {
   id: number;
   map_id: number;
@@ -24,14 +33,19 @@ export type EventListItem = {
   title: string;
   description: string | null;
   importance: number;
+  is_archived: boolean;
   layer_id: number | null;
   sub_layer_id: number | null;
   sub_sub_layer_id: number | null;
   created_by_id: number | null;
   created_by_name: string | null;
+  updated_by_id: number | null;
+  updated_by_name: string | null;
   created_at: string;
+  updated_at: string | null;
   images_count: number;
   documents_count: number;
+  comments_count: number;
 };
 
 export type EventDetail = {
@@ -44,15 +58,19 @@ export type EventDetail = {
   title: string;
   description: string | null;
   importance: number;
+  is_archived: boolean;
   layer_id: number | null;
   sub_layer_id: number | null;
   sub_sub_layer_id: number | null;
   created_by_id: number | null;
   created_by_name: string | null;
+  updated_by_id: number | null;
+  updated_by_name: string | null;
   created_at: string;
   updated_at: string | null;
   images: EventImage[];
   documents: EventDocument[];
+  comments: EventComment[];
 };
 
 export type EventCreateData = {
@@ -66,6 +84,18 @@ export type EventCreateData = {
   sub_sub_layer_id?: number | null;
   images?: File[];
   documents?: File[];
+};
+
+export type EventUpdateData = {
+  title?: string;
+  description?: string | null;
+  importance?: number;
+  status?: string;
+  is_archived?: boolean;
+  district_name?: string;
+  layer_id?: number | null;
+  sub_layer_id?: number | null;
+  sub_sub_layer_id?: number | null;
 };
 
 export const getEvents = async (): Promise<EventListItem[]> => {
@@ -121,6 +151,20 @@ export const createEvent = async (eventData: EventCreateData): Promise<EventDeta
   return data;
 };
 
+export const updateEvent = async (eventId: number, eventData: EventUpdateData): Promise<EventDetail> => {
+  const { data } = await api.put<EventDetail>(`/events/${eventId}`, eventData);
+  return data;
+};
+
 export const deleteEvent = async (eventId: number): Promise<void> => {
   await api.delete(`/events/${eventId}`);
+};
+
+export const addEventComment = async (eventId: number, text: string): Promise<EventComment> => {
+  const { data } = await api.post<EventComment>(`/events/${eventId}/comments`, { text });
+  return data;
+};
+
+export const deleteEventComment = async (eventId: number, commentId: number): Promise<void> => {
+  await api.delete(`/events/${eventId}/comments/${commentId}`);
 };

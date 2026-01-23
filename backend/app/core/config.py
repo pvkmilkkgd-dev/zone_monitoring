@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = Field(default_factory=list)
     SECRET_KEY: str = "CHANGE_ME"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 2  # 2 часа
     ALGORITHM: str = "HS256"
     DATABASE_URL: str = Field(
         default="postgresql+psycopg2://zone_user:Ural196User!@localhost:5432/zone_monitoring",

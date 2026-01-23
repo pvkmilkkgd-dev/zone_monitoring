@@ -12,6 +12,7 @@ class Layer(Base):
     name = Column(String(255), nullable=False)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
     is_visible = Column(Boolean, nullable=False, default=True)
+    is_deleted = Column(Boolean, nullable=False, default=False, comment="Мягкое удаление")
     order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -26,6 +27,7 @@ class SubLayer(Base):
     name = Column(String(255), nullable=False)
     parent_layer_id = Column(Integer, ForeignKey("layers.id", ondelete="CASCADE"), nullable=False)
     is_visible = Column(Boolean, nullable=False, default=True)
+    is_deleted = Column(Boolean, nullable=False, default=False, comment="Мягкое удаление")
     order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -40,6 +42,7 @@ class SubSubLayer(Base):
     name = Column(String(255), nullable=False)
     parent_sub_layer_id = Column(Integer, ForeignKey("sub_layers.id", ondelete="CASCADE"), nullable=False)
     is_visible = Column(Boolean, nullable=False, default=True)
+    is_deleted = Column(Boolean, nullable=False, default=False, comment="Мягкое удаление")
     order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

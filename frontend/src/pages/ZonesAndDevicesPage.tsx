@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import {
   ComposableMap,
   Geographies,
@@ -7,10 +8,16 @@ import {
 import {
   getAdministrativeZones,
   createAdministrativeZone,
+  updateAdministrativeZone,
   deleteAdministrativeZone,
   type AdministrativeZone,
 } from "../api/administrative-zones";
-import { requireAuth, handleAuthError, logout } from "../utils/auth";
+import {
+  getDistrictDescriptions,
+  updateDistrictDescription,
+  type DistrictDescription,
+} from "../api/district-descriptions";
+import { requireAdmin, handleAuthError, logout } from "../utils/auth";
 import { fetchSystemSettings } from "../api/admin";
 
 type Region = {
@@ -45,7 +52,7 @@ export function ZonesAndDevicesPage() {
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  
+
   // Поиск по районам
   const [districtSearch, setDistrictSearch] = useState("");
   
@@ -56,6 +63,25 @@ export function ZonesAndDevicesPage() {
   // Модальное окно удаления
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; zoneId: number | null; zoneName: string }>({ open: false, zoneId: null, zoneName: '' });
   
+  // Модальное окно редактирования
+  const [editModal, setEditModal] = useState<{ 
+    open: boolean; 
+    zone: AdministrativeZone | null;
+    name: string;
+    description: string;
+    selectedDistricts: Set<string>;
+  }>({ open: false, zone: null, name: '', description: '', selectedDistricts: new Set() });
+  const [editSaving, setEditSaving] = useState(false);
+  
+  // Модальное окно описания района
+  const [districtModal, setDistrictModal] = useState<{
+    open: boolean;
+    districtName: string;
+    description: string;
+  }>({ open: false, districtName: '', description: '' });
+  const [districtDescriptions, setDistrictDescriptions] = useState<Map<string, string>>(new Map());
+  const [districtSaving, setDistrictSaving] = useState(false);
+  
   // Уведомление об успешном удалении
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
@@ -63,8 +89,19 @@ export function ZonesAndDevicesPage() {
   const [nameError, setNameError] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  // Закрытие модальных окон по Escape
+  const closeDeleteModalEsc = useCallback(() => setDeleteModal({ open: false, zoneId: null, zoneName: '' }), []);
+  const closeEditModalEsc = useCallback(() => setEditModal({ open: false, zone: null, name: '', description: '', selectedDistricts: new Set() }), []);
+  const closeDistrictModalEsc = useCallback(() => setDistrictModal({ open: false, districtName: '', description: '' }), []);
+  const closeSuccessMessage = useCallback(() => setSuccessMessage(null), []);
+
+  useEscapeKey(deleteModal.open, closeDeleteModalEsc);
+  useEscapeKey(editModal.open, closeEditModalEsc);
+  useEscapeKey(districtModal.open, closeDistrictModalEsc);
+  useEscapeKey(successMessage !== null, closeSuccessMessage);
+
   // Состояние для размеров контейнера карты
-  const [mapSize, setMapSize] = useState({ width: 800, height: 400 });
+  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const mapContainerRef = useRef<HTMLDivElement>(null);
   
   // Состояние для зума карты
@@ -122,7 +159,7 @@ export function ZonesAndDevicesPage() {
   };
 
   useEffect(() => {
-    if (!requireAuth()) return;
+    if (!requireAdmin()) return;
     loadInitialData();
   }, []);
 
@@ -130,6 +167,12 @@ export function ZonesAndDevicesPage() {
   useEffect(() => {
     const container = mapContainerRef.current;
     if (!container) return;
+
+    // Устанавливаем размер сразу
+    const rect = container.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      setMapSize({ width: rect.width, height: rect.height });
+    }
 
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
@@ -140,7 +183,7 @@ export function ZonesAndDevicesPage() {
 
     ro.observe(container);
     return () => ro.disconnect();
-  }, [geoUrl]);
+  }, []);
 
   // Обработчик зума колесиком и перетаскивания - добавляем напрямую к DOM
   useEffect(() => {
@@ -338,6 +381,9 @@ export function ZonesAndDevicesPage() {
 
       const data = await getAdministrativeZones(1);
       setZones(data);
+      
+      // Загружаем описания районов
+      await loadDistrictDescriptions();
     } catch (e: any) {
       console.error(e);
       if (handleAuthError(e)) return;
@@ -356,6 +402,65 @@ export function ZonesAndDevicesPage() {
       console.error(e);
       if (handleAuthError(e)) return;
       setError(e.message || "Ошибка загрузки административных зон");
+    }
+  };
+
+  const loadDistrictDescriptions = async () => {
+    try {
+      const data = await getDistrictDescriptions();
+      const map = new Map<string, string>();
+      data.forEach(d => {
+        if (d.description) {
+          map.set(d.district_name, d.description);
+        }
+      });
+      setDistrictDescriptions(map);
+    } catch (e: any) {
+      console.error("Ошибка загрузки описаний районов:", e);
+    }
+  };
+
+  // Функции модального окна описания района
+  const openDistrictModal = (districtName: string) => {
+    setDistrictModal({
+      open: true,
+      districtName,
+      description: districtDescriptions.get(districtName) || '',
+    });
+  };
+
+  const closeDistrictModal = () => {
+    setDistrictModal({ open: false, districtName: '', description: '' });
+  };
+
+  const saveDistrictDescription = async () => {
+    if (!districtModal.districtName) return;
+    
+    setDistrictSaving(true);
+    try {
+      await updateDistrictDescription(districtModal.districtName, {
+        description: districtModal.description.trim() || null,
+      });
+      
+      // Обновляем локальное состояние
+      setDistrictDescriptions(prev => {
+        const newMap = new Map(prev);
+        if (districtModal.description.trim()) {
+          newMap.set(districtModal.districtName, districtModal.description.trim());
+        } else {
+          newMap.delete(districtModal.districtName);
+        }
+        return newMap;
+      });
+      
+      closeDistrictModal();
+      setSuccessMessage(`Описание района "${districtModal.districtName}" сохранено`);
+    } catch (e: any) {
+      console.error(e);
+      if (handleAuthError(e)) return;
+      setError(e.message || "Ошибка при сохранении описания");
+    } finally {
+      setDistrictSaving(false);
     }
   };
 
@@ -465,6 +570,66 @@ export function ZonesAndDevicesPage() {
     }
   };
 
+  // Функции модального окна редактирования
+  const openEditModal = (zone: AdministrativeZone) => {
+    setEditModal({
+      open: true,
+      zone,
+      name: zone.department_name,
+      description: zone.description || '',
+      selectedDistricts: new Set(zone.district_names),
+    });
+  };
+
+  const closeEditModal = () => {
+    setEditModal({ open: false, zone: null, name: '', description: '', selectedDistricts: new Set() });
+  };
+
+  const toggleEditDistrict = (districtName: string) => {
+    setEditModal(prev => {
+      const newSet = new Set(prev.selectedDistricts);
+      if (newSet.has(districtName)) {
+        newSet.delete(districtName);
+      } else {
+        newSet.add(districtName);
+      }
+      return { ...prev, selectedDistricts: newSet };
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editModal.zone) return;
+    
+    const trimmedName = editModal.name.trim();
+    if (!trimmedName) {
+      setError("Введите название подразделения");
+      return;
+    }
+
+    if (editModal.selectedDistricts.size === 0) {
+      setError("Выберите хотя бы один район");
+      return;
+    }
+    
+    setEditSaving(true);
+    try {
+      await updateAdministrativeZone(editModal.zone.id, {
+        department_name: trimmedName,
+        description: editModal.description.trim() || null,
+        district_names: Array.from(editModal.selectedDistricts),
+      });
+      await loadZones();
+      closeEditModal();
+      setSuccessMessage(`Подразделение "${trimmedName}" успешно обновлено`);
+    } catch (e: any) {
+      console.error(e);
+      if (handleAuthError(e)) return;
+      setError(e.message || "Ошибка при сохранении");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   // Получаем цвет для района на основе назначения
   const getDistrictColor = (districtName: string) => {
     // Проверяем, выбран ли район в форме
@@ -488,48 +653,71 @@ export function ZonesAndDevicesPage() {
       <div className="max-w-7xl mx-auto">
         {/* Навигация */}
         <div className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Регион и управление
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-            >
-              Зоны и устройства
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/layers"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Слои
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/events"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              События
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/situation"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Обстановка
-            </button>
+          <div className="flex items-center gap-3 text-sm">
+            {/* Группа 1: Регион, Зоны, Пользователи, Журналирование */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Регион и управление
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                Зоны и устройства
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin/users"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Пользователи
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin/journal"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Журналирование
+              </button>
+            </div>
+            {/* Группа 2: Слои, События */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/layers"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Слои
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/events"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                События
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/reports"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Отчёты
+              </button>
+            </div>
+            {/* Группа 3: Обстановка */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/situation"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Обстановка
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -582,14 +770,14 @@ export function ZonesAndDevicesPage() {
                 >
                   Сброс
                 </button>
-              </div>
+                </div>
             </div>
             
             {geoUrl ? (
               <div className="relative">
                 <div 
                   ref={mapContainerRef}
-                  className="w-full h-[calc(100vh-280px)] min-h-[300px] max-h-[500px] rounded-xl overflow-hidden bg-slate-800/50 relative cursor-grab active:cursor-grabbing"
+                  className="w-full h-[calc(100vh-240px)] min-h-[400px] rounded-xl overflow-hidden bg-slate-800/50 relative cursor-grab active:cursor-grabbing"
                 >
                   <ComposableMap
                     projection="geoMercator"
@@ -602,17 +790,17 @@ export function ZonesAndDevicesPage() {
                     style={{ width: "100%", height: "100%", display: "block" }}
                   >
                     <Geographies geography={geoUrl}>
-                      {({ geographies }) => {
-                        const validGeographies = geographies.filter((geo) => {
+                    {({ geographies }) => {
+                      const validGeographies = geographies.filter((geo) => {
                           if (!geo.geometry || !geo.geometry.coordinates) return false;
-                          const coords = geo.geometry.coordinates;
-                          const geomType = geo.geometry.type;
+                        const coords = geo.geometry.coordinates;
+                        const geomType = geo.geometry.type;
                           return (geomType === 'MultiPolygon' || geomType === 'Polygon') && Array.isArray(coords) && coords.length > 0;
-                        });
-                        
-                        return validGeographies.map((geo, index) => {
-                          const props = geo.properties as any;
-                          const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
+                      });
+                      
+                      return validGeographies.map((geo, index) => {
+                        const props = geo.properties as any;
+                        const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
                           const colors = getDistrictColor(districtName);
                           
                           return (
@@ -630,9 +818,9 @@ export function ZonesAndDevicesPage() {
                               strokeWidth={0.5 / zoomLevel}
                               style={{
                                 default: { fill: colors.fill, outline: "none" },
-                                hover: { 
+                                hover: {
                                   fill: assignedDistricts.has(districtName) ? colors.fill : "rgba(14, 165, 233, 0.3)",
-                                  outline: "none", 
+                                  outline: "none",
                                   cursor: assignedDistricts.has(districtName) ? "default" : "pointer" 
                                 },
                                 pressed: { fill: colors.fill, outline: "none" },
@@ -640,9 +828,9 @@ export function ZonesAndDevicesPage() {
                             />
                           );
                         });
-                      }}
-                    </Geographies>
-                  </ComposableMap>
+                    }}
+                  </Geographies>
+                </ComposableMap>
                 </div>
                 
                 {hoveredDistrict && (
@@ -655,12 +843,12 @@ export function ZonesAndDevicesPage() {
                 )}
               </div>
             ) : (
-              <div className="h-[calc(100vh-280px)] min-h-[300px] max-h-[500px] rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-400">
+              <div className="h-[calc(100vh-240px)] min-h-[400px] rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-400">
                 {loading ? "Загрузка карты..." : "Карта не загружена. Проверьте настройки региона."}
               </div>
             )}
-          </div>
-
+            </div>
+            
           {/* Районы и форма добавления */}
           <div className="space-y-4">
             {/* Список районов */}
@@ -681,7 +869,7 @@ export function ZonesAndDevicesPage() {
                     Сбросить
                   </button>
                 </div>
-              </div>
+                    </div>
               
               <input
                 type="text"
@@ -713,10 +901,10 @@ export function ZonesAndDevicesPage() {
                 {availableDistricts.length === 0 && (
                   <div className="text-center py-2 text-slate-500 text-xs">
                     {districtSearch ? "Не найдено" : "Все назначены"}
-                  </div>
-                )}
-              </div>
-            </div>
+                    </div>
+                  )}
+                </div>
+          </div>
 
             {/* Форма добавления */}
             <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4">
@@ -784,21 +972,21 @@ export function ZonesAndDevicesPage() {
               </button>
             </div>
           </div>
-        </div>
+            </div>
 
-        {/* Таблица зон */}
+            {/* Таблица зон */}
         <div className="mt-4 rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-700/60">
             <h2 className="text-base font-semibold">Назначенные подразделения</h2>
           </div>
 
-          {loading ? (
+              {loading ? (
             <div className="p-4 text-center text-slate-300 text-sm">Загрузка...</div>
-          ) : zones.length === 0 ? (
+              ) : zones.length === 0 ? (
             <div className="p-4 text-center text-slate-400 text-sm">
               Нет созданных подразделений
-            </div>
-          ) : (
+                </div>
+              ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-800/60">
@@ -808,8 +996,8 @@ export function ZonesAndDevicesPage() {
                       onClick={() => handleSort('name')}
                     >
                       Подразделение {sortField === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th 
+                        </th>
+                        <th
                       className="px-4 py-2 text-left text-xs font-semibold text-slate-300 uppercase cursor-pointer hover:text-sky-400 transition-colors"
                       onClick={() => handleSort('districts')}
                     >
@@ -817,25 +1005,38 @@ export function ZonesAndDevicesPage() {
                     </th>
                     <th className="px-4 py-2 text-right text-xs font-semibold text-slate-300 uppercase">
                       
-                    </th>
-                  </tr>
-                </thead>
+                        </th>
+                      </tr>
+                    </thead>
                 <tbody className="divide-y divide-slate-800">
                   {sortedZones.map((zone) => (
                     <tr key={zone.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-slate-100 font-medium">
-                        {zone.department_name}
+                      <td className="px-4 py-2 whitespace-nowrap text-sm">
+                        <button
+                          onClick={() => openEditModal(zone)}
+                          className="text-slate-100 font-medium hover:text-sky-400 transition-colors text-left"
+                        >
+                          {zone.department_name}
+                        </button>
+                        {zone.description && (
+                          <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">{zone.description}</p>
+                        )}
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex flex-wrap gap-1 max-w-xl">
                           {zone.district_names.length > 0 ? (
                             zone.district_names.map(name => (
-                              <span
+                            <button
                                 key={name}
-                                className="inline-block px-1.5 py-0.5 rounded bg-green-500/20 border border-green-500/40 text-xs text-green-300"
+                                onClick={() => openDistrictModal(name)}
+                                className="inline-block px-1.5 py-0.5 rounded bg-green-500/20 border border-green-500/40 text-xs text-green-300 hover:bg-green-500/30 hover:border-green-500/60 transition-colors cursor-pointer"
+                                title={districtDescriptions.get(name) || "Нажмите, чтобы добавить описание"}
                               >
                                 {name}
-                              </span>
+                                {districtDescriptions.has(name) && (
+                                  <span className="ml-1 text-green-400">📝</span>
+                                )}
+                              </button>
                             ))
                           ) : (
                             <span className="text-slate-500 text-xs">—</span>
@@ -846,18 +1047,18 @@ export function ZonesAndDevicesPage() {
                         <button
                           onClick={() => openDeleteModal(zone)}
                           className="rounded bg-red-500/20 border border-red-500/40 px-3 py-1 text-xs font-medium text-red-300 hover:bg-red-500/30 hover:border-red-500/60 transition"
-                        >
-                          Удалить
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                            >
+                              Удалить
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
 
       {/* Модальное окно удаления */}
       {deleteModal.open && (
@@ -881,8 +1082,8 @@ export function ZonesAndDevicesPage() {
               >
                 Удалить
               </button>
-            </div>
-          </div>
+        </div>
+      </div>
         </div>
       )}
 
@@ -904,6 +1105,187 @@ export function ZonesAndDevicesPage() {
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
               >
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно редактирования подразделения */}
+      {editModal.open && editModal.zone && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeEditModal}></div>
+          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Редактирование подразделения</h3>
+              <button
+                onClick={closeEditModal}
+                className="text-slate-400 hover:text-slate-200 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Название */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-1">Название подразделения</label>
+              <input
+                type="text"
+                value={editModal.name}
+                onChange={(e) => setEditModal(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                placeholder="Введите название"
+              />
+            </div>
+            
+            {/* Описание */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-1">Описание</label>
+              <textarea
+                value={editModal.description}
+                onChange={(e) => setEditModal(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 resize-none"
+                placeholder="Введите описание подразделения (необязательно)"
+              />
+            </div>
+            
+            {/* Районы */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-1">
+                Районы ({editModal.selectedDistricts.size} выбрано)
+              </label>
+              <div className="rounded-lg border border-slate-700 bg-slate-800 p-2 max-h-48 overflow-y-auto">
+                {allDistricts.length === 0 ? (
+                  <div className="text-slate-500 text-sm text-center py-2">Нет районов</div>
+                ) : (
+                  <div className="space-y-1">
+                    {allDistricts.map(district => {
+                      const isSelected = editModal.selectedDistricts.has(district.name);
+                      const isAssignedToOther = assignedDistricts.has(district.name) && !editModal.zone?.district_names.includes(district.name);
+                      
+                      return (
+                        <label
+                          key={district.name}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                            isSelected 
+                              ? 'bg-sky-500/20 text-sky-300' 
+                              : isAssignedToOther
+                                ? 'bg-slate-700/30 text-slate-500 cursor-not-allowed'
+                                : 'hover:bg-slate-700/50 text-slate-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isAssignedToOther}
+                            onChange={() => !isAssignedToOther && toggleEditDistrict(district.name)}
+                            className="rounded border-slate-600 bg-slate-700 text-sky-500 focus:ring-sky-500/50"
+                          />
+                          <span className="text-sm">{district.name}</span>
+                          {isAssignedToOther && (
+                            <span className="text-xs text-slate-500 ml-auto">(назначен другому)</span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Выбранные районы */}
+            {editModal.selectedDistricts.size > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-300 mb-1">Выбранные районы:</label>
+                <div className="flex flex-wrap gap-1">
+                  {Array.from(editModal.selectedDistricts).map(name => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/20 border border-sky-500/40 text-xs text-sky-300"
+                    >
+                      {name}
+                      <button
+                        onClick={() => toggleEditDistrict(name)}
+                        className="hover:text-sky-100"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Кнопки */}
+            <div className="flex gap-3 justify-end pt-2 border-t border-slate-700">
+              <button
+                onClick={closeEditModal}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={editSaving || !editModal.name.trim() || editModal.selectedDistricts.size === 0}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {editSaving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно описания района */}
+      {districtModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeDistrictModal}></div>
+          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Описание района</h3>
+              <button
+                onClick={closeDistrictModal}
+                className="text-slate-400 hover:text-slate-200 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Название района */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-1">Район</label>
+              <div className="px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white">
+                {districtModal.districtName}
+              </div>
+            </div>
+            
+            {/* Описание */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-300 mb-1">Описание</label>
+              <textarea
+                value={districtModal.description}
+                onChange={(e) => setDistrictModal(prev => ({ ...prev, description: e.target.value }))}
+                rows={5}
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 resize-none"
+                placeholder="Введите описание района (необязательно)"
+              />
+            </div>
+            
+            {/* Кнопки */}
+            <div className="flex gap-3 justify-end pt-2 border-t border-slate-700">
+              <button
+                onClick={closeDistrictModal}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={saveDistrictDescription}
+                disabled={districtSaving}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {districtSaving ? 'Сохранение...' : 'Сохранить'}
               </button>
             </div>
           </div>

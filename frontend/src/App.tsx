@@ -8,7 +8,9 @@ import { UsersPage } from "./pages/UsersPage";
 import { ZonesAndDevicesPage } from "./pages/ZonesAndDevicesPage";
 import { LayersPage } from "./pages/LayersPage";
 import { EventsPage } from "./pages/EventsPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { SituationPage } from "./pages/SituationPage";
+import { JournalPage } from "./pages/JournalPage";
 
 function App() {
   const path = window.location.pathname;
@@ -17,9 +19,11 @@ function App() {
   if (path === "/admin/profile") return <AdminProfilePage />;
   if (path === "/admin/users" || path === "/admin/users/") return <UsersPage />;
   if (path === "/admin/zones" || path === "/admin/zones/") return <ZonesAndDevicesPage />;
-  if (path === "/admin/layers" || path === "/admin/layers/") return <LayersPage />;
-  if (path === "/admin/events" || path === "/admin/events/") return <EventsPage />;
-  if (path === "/admin/situation" || path === "/admin/situation/") return <SituationPage />;
+  if (path === "/editor/layers" || path === "/editor/layers/") return <LayersPage />;
+  if (path === "/editor/events" || path === "/editor/events/") return <EventsPage />;
+  if (path === "/editor/reports" || path === "/editor/reports/") return <ReportsPage />;
+  if (path === "/situation" || path === "/situation/") return <SituationPage />;
+  if (path === "/admin/journal" || path === "/admin/journal/") return <JournalPage />;
 
   // 🔥 ВАЖНО: делаем /admin и /admin/ одинаковыми
   if (path === "/admin" || path === "/admin/") {

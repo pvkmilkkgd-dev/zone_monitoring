@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.schemas.auth import (
     UserMe,
     UserProfileUpdate,
 )
+from app.services.audit_service import AuditService
 
 router = APIRouter(
     prefix="/auth",
@@ -64,11 +65,12 @@ def bootstrap_admin(payload: BootstrapAdminCreate, db: Session = Depends(get_db)
     db.refresh(user)
 
     access_token = create_access_token(subject=str(user.id))
-    return Token(access_token=access_token, token_type="bearer")
+    return Token(access_token=access_token, token_type="bearer", role=user.role, user_id=user.id)
 
 
 @router.post("/token", response_model=Token)
 def login_oauth2(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
@@ -81,13 +83,32 @@ def login_oauth2(
 
     user = db.query(User).filter(User.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.password_hash):
+        # Логируем неудачную попытку входа
+        audit = AuditService(db)
+        audit.log(
+            action="LOGIN_FAILED",
+            user=None,
+            description=f"Неудачная попытка входа для пользователя '{form_data.username}'",
+            details={"username": form_data.username},
+            request=request,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверное имя пользователя или пароль",
         )
 
     access_token = create_access_token(subject=str(user.id))
-    return Token(access_token=access_token, token_type="bearer")
+    
+    # Логируем успешный вход
+    audit = AuditService(db)
+    audit.log(
+        action="LOGIN",
+        user=user,
+        description=f"Пользователь '{user.username}' вошёл в систему",
+        request=request,
+    )
+    
+    return Token(access_token=access_token, token_type="bearer", role=user.role, user_id=user.id)
 
 
 @router.post("/register", response_model=Token, deprecated=True)
@@ -109,7 +130,7 @@ def register_user(payload: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
 
     access_token = create_access_token(subject=str(user.id))
-    return Token(access_token=access_token, token_type="bearer")
+    return Token(access_token=access_token, token_type="bearer", role=user.role, user_id=user.id)
 
 
 @router.get("/me", response_model=UserMe)

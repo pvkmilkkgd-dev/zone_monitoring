@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { fetchSystemSettings, updateSystemSettings } from "../api/admin";
 import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
-import { requireAuth, handleAuthError, logout } from "../utils/auth";
+import { requireAdmin, handleAuthError, logout } from "../utils/auth";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 type Region = { id: string; name: string };
 
@@ -26,6 +27,10 @@ export function AdminSettingsPage() {
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [mapKey, setMapKey] = useState(0); // Ключ для принудительного обновления карты
   const deptRef = useRef<HTMLTextAreaElement>(null);
+
+  // Закрытие модального окна по Escape
+  const closeNotification = useCallback(() => setNotification(null), []);
+  useEscapeKey(notification !== null, closeNotification);
 
   // Автоматическое изменение высоты textarea
   useEffect(() => {
@@ -54,7 +59,7 @@ export function AdminSettingsPage() {
   }, [departmentName]);
 
   useEffect(() => {
-    if (!requireAuth()) return;
+    if (!requireAdmin()) return;
 
     const load = async () => {
       try {
@@ -162,48 +167,71 @@ export function AdminSettingsPage() {
       <div className="max-w-7xl mx-auto">
         {/* Навигация */}
         <div className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
-            <button
-              type="button"
-              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-            >
-              Регион и управление
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/zones"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Зоны и устройства
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/layers"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Слои
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/events"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              События
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/situation"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Обстановка
-            </button>
+          <div className="flex items-center gap-3 text-sm">
+            {/* Группа 1: Регион, Зоны, Пользователи, Журналирование */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
+              >
+                Регион и управление
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin/zones"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Зоны и устройства
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin/users"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Пользователи
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/admin/journal"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Журналирование
+              </button>
+            </div>
+            {/* Группа 2: Слои, События */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/layers"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Слои
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/events"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                События
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/editor/reports"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Отчёты
+              </button>
+            </div>
+            {/* Группа 3: Обстановка */}
+            <div className="flex gap-2 rounded-full bg-slate-800/80 p-1">
+              <button
+                type="button"
+                onClick={() => { window.location.href = "/situation"; }}
+                className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+              >
+                Обстановка
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

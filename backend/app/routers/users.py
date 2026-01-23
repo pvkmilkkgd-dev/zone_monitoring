@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import get_current_user, hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import UserRead, UserSelfUpdate
+from app.schemas.user import UserRead, UserPublic, UserSelfUpdate
 
 router = APIRouter(
     prefix="/users",
@@ -12,7 +12,7 @@ router = APIRouter(
 )
 
 
-@router.get("/me", response_model=UserRead)
+@router.get("/me", response_model=UserPublic)
 def get_me(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 

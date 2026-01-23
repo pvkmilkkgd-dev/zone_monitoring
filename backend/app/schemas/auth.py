@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, constr
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: str | None = None
+    user_id: int | None = None
 
 
 class UserCreate(BaseModel):

@@ -4,6 +4,7 @@ export type AdministrativeZone = {
   id: number;
   map_id: number;
   department_name: string;
+  description?: string | null;
   district_names: string[];
   layer_id?: number | null;
   sub_layer_id?: number | null;
@@ -15,6 +16,7 @@ export type AdministrativeZone = {
 export type AdministrativeZoneCreate = {
   map_id: number;
   department_name: string;
+  description?: string | null;
   district_names: string[];
   layer_id?: number | null;
   sub_layer_id?: number | null;
@@ -23,6 +25,7 @@ export type AdministrativeZoneCreate = {
 
 export type AdministrativeZoneUpdate = {
   department_name?: string;
+  description?: string | null;
   district_names?: string[];
   layer_id?: number | null;
   sub_layer_id?: number | null;

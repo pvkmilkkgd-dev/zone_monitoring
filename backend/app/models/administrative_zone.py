@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -12,10 +12,12 @@ class AdministrativeZone(Base):
     id = Column(Integer, primary_key=True, index=True)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
     department_name = Column(String(255), nullable=False, comment="Название отдела")
+    description = Column(Text, nullable=True, comment="Описание подразделения")
     district_names = Column(JSON, nullable=False, comment="Список административных районов (JSON массив)")
     layer_id = Column(Integer, ForeignKey("layers.id", ondelete="SET NULL"), nullable=True, comment="ID главного слоя")
     sub_layer_id = Column(Integer, ForeignKey("sub_layers.id", ondelete="SET NULL"), nullable=True, comment="ID вложенного слоя")
     sub_sub_layer_id = Column(Integer, ForeignKey("sub_sub_layers.id", ondelete="SET NULL"), nullable=True, comment="ID под-вложенного слоя")
+    is_deleted = Column(Boolean, nullable=False, default=False, comment="Мягкое удаление")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 

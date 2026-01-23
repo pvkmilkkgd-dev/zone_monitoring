@@ -25,6 +25,24 @@ class EventDocumentOut(BaseModel):
         from_attributes = True
 
 
+class EventCommentOut(BaseModel):
+    """Схема комментария события для ответа."""
+    id: int
+    event_id: int
+    user_id: Optional[int] = None
+    user_name: Optional[str] = None
+    text: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EventCommentCreate(BaseModel):
+    """Схема для создания комментария."""
+    text: str = Field(..., min_length=1, description="Текст комментария")
+
+
 class EventCreate(BaseModel):
     """Схема для создания события."""
     map_id: int = Field(..., description="ID карты")
@@ -44,6 +62,7 @@ class EventUpdate(BaseModel):
     description: Optional[str] = Field(None, description="Описание события")
     importance: Optional[int] = Field(None, ge=1, le=10, description="Коэффициент важности")
     status: Optional[str] = Field(None, description="Статус события")
+    is_archived: Optional[bool] = Field(None, description="Отметка 'не актуально'")
     layer_id: Optional[int] = Field(None, description="ID главного слоя")
     sub_layer_id: Optional[int] = Field(None, description="ID вложенного слоя")
     sub_sub_layer_id: Optional[int] = Field(None, description="ID под-вложенного слоя")
@@ -60,15 +79,19 @@ class EventOut(BaseModel):
     title: str
     description: Optional[str] = None
     importance: int
+    is_archived: bool = False
     layer_id: Optional[int] = None
     sub_layer_id: Optional[int] = None
     sub_sub_layer_id: Optional[int] = None
     created_by_id: Optional[int] = None
     created_by_name: Optional[str] = None
+    updated_by_id: Optional[int] = None
+    updated_by_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     images: List[EventImageOut] = []
     documents: List[EventDocumentOut] = []
+    comments: List[EventCommentOut] = []
 
     class Config:
         from_attributes = True
@@ -85,14 +108,19 @@ class EventListOut(BaseModel):
     title: str
     description: Optional[str] = None
     importance: int
+    is_archived: bool = False
     layer_id: Optional[int] = None
     sub_layer_id: Optional[int] = None
     sub_sub_layer_id: Optional[int] = None
     created_by_id: Optional[int] = None
     created_by_name: Optional[str] = None
+    updated_by_id: Optional[int] = None
+    updated_by_name: Optional[str] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
     images_count: int = 0
     documents_count: int = 0
+    comments_count: int = 0
 
     class Config:
         from_attributes = True

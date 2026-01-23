@@ -122,11 +122,18 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Проверка: если пользователь уже авторизован, перенаправляем на админ панель
+  // Проверка: если пользователь уже авторизован, перенаправляем по роли
   useEffect(() => {
     const token = localStorage.getItem("zone_jwt");
     if (token) {
-      window.location.href = "/admin";
+      const role = localStorage.getItem("zone_role");
+      if (role === "admin") {
+        window.location.href = "/admin";
+      } else if (role === "editor" || role === "editor_plus") {
+        window.location.href = "/editor/events";
+      } else {
+        window.location.href = "/situation";
+      }
     }
   }, []);
 
@@ -170,9 +177,20 @@ export default function LoginPage() {
         if (data?.role) {
           localStorage.setItem("zone_role", data.role);
         }
+        if (data?.user_id) {
+          localStorage.setItem("zone_user_id", String(data.user_id));
+        }
       }
 
-      window.location.href = "/admin";
+      // Перенаправляем в зависимости от роли
+      const role = data?.role;
+      if (role === "admin") {
+        window.location.href = "/admin";
+      } else if (role === "editor" || role === "editor_plus") {
+        window.location.href = "/editor/events";
+      } else {
+        window.location.href = "/situation";
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Ошибка при входе в систему");

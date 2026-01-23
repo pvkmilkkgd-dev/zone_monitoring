@@ -4,6 +4,7 @@
 
 const TOKEN_KEY = "zone_jwt";
 const ROLE_KEY = "zone_role";
+const USER_ID_KEY = "zone_user_id";
 
 /**
  * Проверяет, авторизован ли пользователь
@@ -32,7 +33,36 @@ export function getUserRole(): string | null {
 export function logout(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ROLE_KEY);
+  localStorage.removeItem(USER_ID_KEY);
   window.location.href = "/";
+}
+
+/**
+ * Получает ID текущего пользователя
+ */
+export function getCurrentUserId(): number | null {
+  const id = localStorage.getItem(USER_ID_KEY);
+  return id ? parseInt(id, 10) : null;
+}
+
+/**
+ * Проверяет, может ли пользователь редактировать все события (admin, editor_plus)
+ */
+export function canEditAll(): boolean {
+  const role = getUserRole();
+  return role === "admin" || role === "editor_plus";
+}
+
+/**
+ * Проверяет, может ли текущий пользователь редактировать конкретное событие
+ */
+export function canEditEvent(createdById: number | null): boolean {
+  if (canEditAll()) return true;
+  if (getUserRole() === "editor") {
+    const currentUserId = getCurrentUserId();
+    return currentUserId !== null && createdById === currentUserId;
+  }
+  return false;
 }
 
 /**
@@ -83,5 +113,37 @@ export function isAdmin(): boolean {
  */
 export function canEdit(): boolean {
   const role = getUserRole();
-  return role === "admin" || role === "editor";
+  return role === "admin" || role === "editor_plus" || role === "editor";
+}
+
+/**
+ * Проверяет авторизацию и права администратора
+ * Перенаправляет на /situation если пользователь не админ
+ */
+export function requireAdmin(): boolean {
+  if (!isAuthenticated()) {
+    window.location.href = "/";
+    return false;
+  }
+  if (!isAdmin()) {
+    window.location.href = "/situation";
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Проверяет авторизацию и права редактора (admin, editor_plus, editor)
+ * Перенаправляет на /situation если пользователь не имеет прав редактирования
+ */
+export function requireEditor(): boolean {
+  if (!isAuthenticated()) {
+    window.location.href = "/";
+    return false;
+  }
+  if (!canEdit()) {
+    window.location.href = "/situation";
+    return false;
+  }
+  return true;
 }

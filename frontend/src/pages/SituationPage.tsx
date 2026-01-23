@@ -1,14 +1,15 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   ComposableMap,
   Geographies,
   Geography,
   ZoomableGroup,
 } from "react-simple-maps";
-import { requireAuth, handleAuthError, logout } from "../utils/auth";
-import { fetchSystemSettings } from "../api/admin";
+import { requireAuth, handleAuthError, logout, canEdit, isAdmin } from "../utils/auth";
+import { useEscapeKey } from "../hooks/useEscapeKey";
+import { fetchSystemSettings, fetchCurrentUser } from "../api/admin";
 import { getAdministrativeZones, type AdministrativeZone } from "../api/administrative-zones";
-import { getEvents, getEvent, type EventListItem, type EventDetail } from "../api/events";
+import { getEvents, getEvent, updateEvent, addEventComment, deleteEventComment, type EventListItem, type EventDetail } from "../api/events";
 import { getLayers, type Layer } from "../api/layers";
 
 type District = {
@@ -20,6 +21,7 @@ type DistrictStats = {
   eventCount: number;
   maxImportance: number;
   avgImportance: number;
+  integralScore: number; // Интегральная оценка района
 };
 
 export function SituationPage() {
@@ -30,6 +32,7 @@ export function SituationPage() {
   const [geoUrl, setGeoUrl] = useState<string | null>(null);
   const [regionName, setRegionName] = useState<string>("");
   const [departmentName, setDepartmentName] = useState<string>("");
+  const [currentUserName, setCurrentUserName] = useState<string>("");
   const [mapConfig, setMapConfig] = useState<{ center: [number, number]; scale: number } | null>(null);
   
   // Данные
@@ -52,6 +55,10 @@ export function SituationPage() {
   // Просмотр события
   const [selectedEvent, setSelectedEvent] = useState<EventDetail | null>(null);
   const [loadingEvent, setLoadingEvent] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
+  const [savingArchive, setSavingArchive] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
   
   // Фильтр слоя в панели
   const [panelLayerFilter, setPanelLayerFilter] = useState<string>("all");
@@ -63,6 +70,38 @@ export function SituationPage() {
     alert: "Тревога",
   };
 
+  // Закрытие модального окна по Escape
+  const closeEventModal = useCallback(() => setSelectedEvent(null), []);
+  useEscapeKey(selectedEvent !== null, closeEventModal);
+
+  // Получить название слоя по ID
+  const getLayerName = (layerId: number | null, subLayerId: number | null, subSubLayerId: number | null): string => {
+    if (!layerId && !subLayerId && !subSubLayerId) return "Не указан";
+    
+    for (const layer of layers) {
+      if (subSubLayerId) {
+        for (const sub of layer.sub_layers || []) {
+          for (const subSub of sub.sub_sub_layers || []) {
+            if (subSub.id === subSubLayerId) {
+              return `${layer.name} → ${sub.name} → ${subSub.name}`;
+            }
+          }
+        }
+      }
+      if (subLayerId) {
+        for (const sub of layer.sub_layers || []) {
+          if (sub.id === subLayerId) {
+            return `${layer.name} → ${sub.name}`;
+          }
+        }
+      }
+      if (layer.id === layerId) {
+        return layer.name;
+      }
+    }
+    return "Не найден";
+  };
+
   useEffect(() => {
     if (!requireAuth()) return;
     loadInitialData();
@@ -72,6 +111,18 @@ export function SituationPage() {
     try {
       setLoading(true);
       setError(null);
+
+      // Загружаем данные текущего пользователя
+      try {
+        const user = await fetchCurrentUser();
+        if (user?.full_name) {
+          setCurrentUserName(user.full_name);
+        } else if (user?.username) {
+          setCurrentUserName(user.username);
+        }
+      } catch (e) {
+        console.error("Failed to fetch current user:", e);
+      }
 
       // Загружаем настройки
       const settings = await fetchSystemSettings();
@@ -151,11 +202,14 @@ export function SituationPage() {
     });
   }, [events, selectedLayerFilter]);
 
-  // Статистика по районам
+  // Статистика по районам (только актуальные события влияют на цвет)
   const districtStats = useMemo(() => {
     const stats: Record<string, DistrictStats> = {};
     
-    filteredEvents.forEach(ev => {
+    // Фильтруем архивированные события - они не влияют на цвет района
+    const activeEvents = filteredEvents.filter(ev => !ev.is_archived);
+    
+    activeEvents.forEach(ev => {
       if (!ev.district_name) return;
       
       if (!stats[ev.district_name]) {
@@ -164,6 +218,7 @@ export function SituationPage() {
           eventCount: 0,
           maxImportance: 0,
           avgImportance: 0,
+          integralScore: 0,
         };
       }
       
@@ -175,34 +230,31 @@ export function SituationPage() {
       );
     });
     
-    // Вычисляем средние значения
+    // Вычисляем средние значения и интегральную оценку
     Object.keys(stats).forEach(name => {
       if (stats[name].eventCount > 0) {
         stats[name].avgImportance = stats[name].totalImportance / stats[name].eventCount;
+        // Интегральная оценка: maxImportance + log2(eventCount + 1) * 0.5, max 10
+        stats[name].integralScore = Math.min(
+          10,
+          stats[name].maxImportance + Math.log2(stats[name].eventCount + 1) * 0.5
+        );
       }
     });
     
     return stats;
   }, [filteredEvents]);
 
-  // Максимальное значение для нормализации
-  const maxTotalImportance = useMemo(() => {
-    let max = 0;
-    Object.values(districtStats).forEach(s => {
-      max = Math.max(max, s.totalImportance);
-    });
-    return max || 1;
-  }, [districtStats]);
-
-  // Цвет района по важности
+  // Цвет района по важности (на основе интегральной оценки событий в районе)
   const getDistrictColor = useCallback((districtName: string) => {
     const stats = districtStats[districtName];
     if (!stats || stats.eventCount === 0) {
       return "#22c55e"; // Зелёный - нет событий (минимальный уровень)
     }
     
-    // Нормализуем от 0 до 1 (по сумме важности)
-    const normalized = Math.min(stats.totalImportance / maxTotalImportance, 1);
+    // Используем интегральную оценку района (шкала 1-10)
+    // Нормализуем: 1 = 0 (зелёный), 10 = 1 (красный)
+    const normalized = (stats.integralScore - 1) / 9;
     
     // Градиент от зеленого к желтому к красному
     if (normalized < 0.5) {
@@ -220,7 +272,7 @@ export function SituationPage() {
       const b = Math.round(8 + (68 - 8) * t);
       return `rgb(${r}, ${g}, ${b})`;
     }
-  }, [districtStats, maxTotalImportance]);
+  }, [districtStats]);
 
   // Обработчик клика по району
   const handleDistrictClick = (districtName: string) => {
@@ -268,12 +320,66 @@ export function SituationPage() {
   const loadEventDetails = async (eventId: number) => {
     try {
       setLoadingEvent(true);
+      setNewComment("");
       const detail = await getEvent(eventId);
       setSelectedEvent(detail);
     } catch (e) {
       console.error(e);
     } finally {
       setLoadingEvent(false);
+    }
+  };
+
+  // Добавить комментарий
+  const handleAddComment = async () => {
+    if (!selectedEvent || !newComment.trim()) return;
+    
+    setSavingComment(true);
+    try {
+      await addEventComment(selectedEvent.id, newComment.trim());
+      // Перезагружаем событие чтобы получить обновлённый список комментариев
+      const updated = await getEvent(selectedEvent.id);
+      setSelectedEvent(updated);
+      setNewComment("");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
+  // Удалить комментарий
+  const handleDeleteComment = async (commentId: number) => {
+    if (!selectedEvent) return;
+    
+    setDeletingCommentId(commentId);
+    try {
+      await deleteEventComment(selectedEvent.id, commentId);
+      // Перезагружаем событие чтобы получить обновлённый список комментариев
+      const updated = await getEvent(selectedEvent.id);
+      setSelectedEvent(updated);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeletingCommentId(null);
+    }
+  };
+
+  // Отметить как не актуально / актуально
+  const handleToggleArchive = async () => {
+    if (!selectedEvent) return;
+    
+    setSavingArchive(true);
+    try {
+      const updated = await updateEvent(selectedEvent.id, { is_archived: !selectedEvent.is_archived });
+      setSelectedEvent(updated);
+      // Обновляем список событий
+      const updatedEvents = await getEvents();
+      setEvents(updatedEvents);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingArchive(false);
     }
   };
 
@@ -334,12 +440,18 @@ export function SituationPage() {
       <div className="fixed inset-0 flex items-center justify-center bg-slate-900 p-4">
         <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-6 py-4 text-red-100 max-w-md text-center">
           {error}
-          <button
-            onClick={() => window.location.href = "/admin"}
-            className="mt-4 block w-full px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600"
-          >
-            Перейти в настройки
-          </button>
+          {isAdmin() ? (
+            <button
+              onClick={() => window.location.href = "/admin"}
+              className="mt-4 block w-full px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600"
+            >
+              Перейти в настройки
+            </button>
+          ) : (
+            <p className="mt-4 text-sm text-slate-400">
+              Обратитесь к администратору для настройки системы
+            </p>
+          )}
         </div>
       </div>
     );
@@ -410,56 +522,59 @@ export function SituationPage() {
       )}
 
       {/* Навигационная панель сверху */}
-      <div className="absolute top-0 left-0 right-0 z-10 px-4 py-4">
+      <div className="absolute top-0 left-0 right-0 z-10 px-4 py-3">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex gap-2 rounded-full bg-slate-800/80 p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
+          {/* Левая часть: фильтр по слоям */}
+          <div className="flex items-center gap-3">
+            <select
+              value={selectedLayerFilter}
+              onChange={(e) => setSelectedLayerFilter(e.target.value)}
+              className="w-36 rounded-lg border border-slate-700/70 bg-slate-800/90 backdrop-blur px-3 py-1.5 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
             >
-              Регион и управление
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/zones"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Зоны и устройства
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/layers"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Слои
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/events"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              События
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.href = "/admin/users"; }}
-              className="px-3 py-1 rounded-full text-slate-300 hover:text-slate-100 hover:bg-slate-700/50 transition-colors"
-            >
-              Пользователи
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-medium shadow-sm shadow-sky-500/40"
-            >
-              Обстановка
-            </button>
+              <option value="all">Все слои</option>
+              {layers.map((layer) => (
+                <React.Fragment key={layer.id}>
+                  <option value={`layer_${layer.id}`}>{layer.name}</option>
+                  {(layer.sub_layers || []).map((sub) => (
+                    <React.Fragment key={sub.id}>
+                      <option value={`sub_${sub.id}`}>&nbsp;&nbsp;↳ {sub.name}</option>
+                      {(sub.sub_sub_layers || []).map((subSub) => (
+                        <option key={subSub.id} value={`subsub_${subSub.id}`}>
+                          &nbsp;&nbsp;&nbsp;&nbsp;↳↳ {subSub.name}
+                        </option>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </React.Fragment>
+              ))}
+            </select>
           </div>
+          
+          {/* Центр: название управления */}
+          {departmentName && (
+            <h1 className="text-xl font-semibold text-white tracking-tight">{departmentName}</h1>
+          )}
+          
+          {/* Правая часть: кнопки */}
           <div className="flex items-center gap-2">
+            {/* Кнопка возврата - для админов в /admin, для редакторов в /editor/events */}
+            {canEdit() && (
+              <button
+                type="button"
+                onClick={() => { window.location.href = isAdmin() ? "/admin" : "/editor/events"; }}
+                title={isAdmin() ? "Панель управления" : "Редактор событий"}
+                className="shrink-0 p-2 rounded-lg bg-sky-600 text-white hover:bg-sky-500 transition-colors shadow-md"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                  <polyline points="9 22 9 12 15 12 15 22"/>
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               onClick={logout}
-              className="shrink-0 px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-red-300 hover:bg-red-500/10 border border-slate-600/50 hover:border-red-500/50 transition-colors"
+              className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-slate-800/90 text-slate-300 hover:text-red-300 hover:bg-red-500/20 border border-slate-600/50 hover:border-red-500/50 transition-colors"
             >
               Выход
             </button>
@@ -467,49 +582,24 @@ export function SituationPage() {
         </div>
       </div>
 
-      {/* Фильтр по слоям - слева под навигацией */}
-      <div className="absolute top-16 left-4 z-10">
-        <select
-          value={selectedLayerFilter}
-          onChange={(e) => setSelectedLayerFilter(e.target.value)}
-          className="w-32 rounded-lg border border-slate-700/70 bg-slate-800/90 backdrop-blur px-3 py-1.5 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
-        >
-          <option value="all">Все слои</option>
-          {layers.map((layer) => (
-            <optgroup key={layer.id} label={layer.name}>
-              <option value={`layer_${layer.id}`}>{layer.name}</option>
-              {layer.sub_layers.map((sub) => (
-                <>
-                  <option key={`sub_${sub.id}`} value={`sub_${sub.id}`}>
-                    ↳ {sub.name}
-                  </option>
-                  {(sub.sub_sub_layers || []).map((subSub) => (
-                    <option key={`subsub_${subSub.id}`} value={`subsub_${subSub.id}`}>
-                      ↳↳ {subSub.name}
-                    </option>
-                  ))}
-                </>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-
-      {/* Название управления - по центру под навигацией */}
-      {departmentName && (
-        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10">
-          <h1 className="text-xl font-semibold text-white tracking-tight">{departmentName}</h1>
+      {/* Левый нижний угол: легенда и имя пользователя */}
+      <div className="absolute bottom-4 left-4 flex items-end gap-3 z-10">
+        {/* Легенда */}
+        <div className="rounded-lg bg-slate-800/90 backdrop-blur border border-slate-700/50 p-3">
+          <div className="text-xs text-slate-400 mb-2">Важность событий</div>
+          <div className="w-24 h-3 rounded-full overflow-hidden" style={{ background: "linear-gradient(to right, #22c55e 0%, #eab308 50%, #ef4444 100%)" }}></div>
+          <div className="flex justify-between text-[10px] text-slate-500 mt-1 w-24">
+            <span>Низкий</span>
+            <span>Высокий</span>
+          </div>
         </div>
-      )}
-
-      {/* Легенда - левый нижний угол */}
-      <div className="absolute bottom-4 left-4 rounded-lg bg-slate-800/90 backdrop-blur border border-slate-700/50 p-3 z-10">
-        <div className="text-xs text-slate-400 mb-2">Важность событий</div>
-        <div className="w-24 h-3 rounded-full overflow-hidden" style={{ background: "linear-gradient(to right, #22c55e 0%, #eab308 50%, #ef4444 100%)" }}></div>
-        <div className="flex justify-between text-[10px] text-slate-500 mt-1 w-24">
-          <span>Низкий</span>
-          <span>Высокий</span>
-        </div>
+        {/* Имя пользователя */}
+        {currentUserName && (
+          <div className="rounded-lg bg-slate-800/90 backdrop-blur border border-slate-700/50 px-3 py-2">
+            <div className="text-xs text-slate-400">Пользователь</div>
+            <div className="text-sm text-white font-medium">{currentUserName}</div>
+          </div>
+        )}
       </div>
 
       {/* Боковая панель справа */}
@@ -553,10 +643,10 @@ export function SituationPage() {
                     <div className="text-[10px] text-slate-500">Макс.</div>
                   </div>
                   <div className="rounded-lg bg-slate-800/50 p-2">
-                    <div className="text-lg font-semibold text-slate-300">
-                      {districtStats[selectedDistrict].avgImportance.toFixed(1)}
+                    <div className={`text-lg font-semibold ${getImportanceColor(Math.round(districtStats[selectedDistrict].integralScore))}`}>
+                      {districtStats[selectedDistrict].integralScore.toFixed(1)}
                     </div>
-                    <div className="text-[10px] text-slate-500">Средн.</div>
+                    <div className="text-[10px] text-slate-500">Интегр.</div>
                   </div>
                 </div>
               )}
@@ -570,21 +660,19 @@ export function SituationPage() {
                 >
                   <option value="all">Все слои</option>
                   {layers.map((layer) => (
-                    <optgroup key={layer.id} label={layer.name}>
+                    <React.Fragment key={layer.id}>
                       <option value={`layer_${layer.id}`}>{layer.name}</option>
-                      {layer.sub_layers.map((sub) => (
-                        <>
-                          <option key={`sub_${sub.id}`} value={`sub_${sub.id}`}>
-                            &nbsp;&nbsp;↳ {sub.name}
-                          </option>
+                      {(layer.sub_layers || []).map((sub) => (
+                        <React.Fragment key={sub.id}>
+                          <option value={`sub_${sub.id}`}>&nbsp;&nbsp;↳ {sub.name}</option>
                           {(sub.sub_sub_layers || []).map((subSub) => (
-                            <option key={`subsub_${subSub.id}`} value={`subsub_${subSub.id}`}>
-                              &nbsp;&nbsp;&nbsp;&nbsp;↳ {subSub.name}
+                            <option key={subSub.id} value={`subsub_${subSub.id}`}>
+                              &nbsp;&nbsp;&nbsp;&nbsp;↳↳ {subSub.name}
                             </option>
                           ))}
-                        </>
+                        </React.Fragment>
                       ))}
-                    </optgroup>
+                    </React.Fragment>
                   ))}
                 </select>
               </div>
@@ -607,14 +695,25 @@ export function SituationPage() {
                       key={ev.id}
                       onClick={() => loadEventDetails(ev.id)}
                       disabled={loadingEvent}
-                      className="w-full text-left rounded-xl bg-slate-800/50 border border-slate-700/50 p-3 hover:bg-slate-800/70 transition-colors disabled:opacity-50"
+                      className={`w-full text-left rounded-xl border p-3 transition-colors disabled:opacity-50 ${
+                        ev.is_archived 
+                          ? "bg-slate-800/30 border-slate-700/30 opacity-60" 
+                          : "bg-slate-800/50 border-slate-700/50 hover:bg-slate-800/70"
+                      }`}
                     >
                       <div className="flex items-start gap-2">
-                        <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium border ${getImportanceBg(ev.importance)}`}>
+                        <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium border ${ev.is_archived ? "bg-slate-700 text-slate-400 border-slate-600" : getImportanceBg(ev.importance)}`}>
                           {ev.importance}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium text-white truncate">{ev.title}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className={`text-sm font-medium truncate ${ev.is_archived ? "text-slate-400" : "text-white"}`}>{ev.title}</h4>
+                            {ev.is_archived && (
+                              <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-700 text-slate-400 border border-slate-600">
+                                не актуально
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
                             <span>
                               {new Date(ev.created_at).toLocaleDateString("ru-RU")}{" "}
@@ -663,6 +762,11 @@ export function SituationPage() {
                   Важность: {selectedEvent.importance}
                 </span>
                 <h3 className="text-xl font-semibold text-white">{selectedEvent.title}</h3>
+                {selectedEvent.is_archived && (
+                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-400 border border-slate-600">
+                    Не актуально
+                  </span>
+                )}
               </div>
               <button
                 onClick={() => setSelectedEvent(null)}
@@ -696,6 +800,10 @@ export function SituationPage() {
                   <p className="text-slate-200">{selectedEvent.created_by_name}</p>
                 </div>
               )}
+              <div>
+                <span className="text-slate-500">Слой:</span>
+                <p className="text-slate-200">{getLayerName(selectedEvent.layer_id, selectedEvent.sub_layer_id, selectedEvent.sub_sub_layer_id)}</p>
+              </div>
             </div>
             
             {/* Описание */}
@@ -752,9 +860,57 @@ export function SituationPage() {
               </div>
             )}
             
+            {/* Комментарии */}
+            <div className="mb-4">
+              <span className="text-slate-500 text-sm">Комментарии ({selectedEvent.comments?.length || 0}):</span>
+              
+              {/* Список комментариев */}
+              {selectedEvent.comments && selectedEvent.comments.length > 0 && (
+                <div className="mt-2 space-y-2 max-h-40 overflow-y-auto">
+                  {selectedEvent.comments.map(comment => (
+                    <div key={comment.id} className="bg-slate-800/50 rounded-lg p-2 text-sm">
+                      <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-1">
+                        <span className="text-emerald-400">{comment.user_name || "Аноним"}</span>
+                        <span>•</span>
+                        <span>{new Date(comment.created_at).toLocaleString("ru-RU")}</span>
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          disabled={deletingCommentId === comment.id}
+                          className="ml-auto text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                          title="Удалить комментарий"
+                        >
+                          {deletingCommentId === comment.id ? "..." : "✕"}
+                        </button>
+                      </div>
+                      <p className="text-slate-300 whitespace-pre-wrap">{comment.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Форма добавления комментария */}
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="Напишите комментарий..."
+                  className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                  onKeyDown={(e) => e.key === 'Enter' && !savingComment && handleAddComment()}
+                />
+                <button
+                  onClick={handleAddComment}
+                  disabled={savingComment || !newComment.trim()}
+                  className="px-3 py-2 rounded-lg text-sm bg-sky-500 text-white hover:bg-sky-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingComment ? "..." : "Отправить"}
+                </button>
+              </div>
+            </div>
+            
             {/* Связанные события (по той же теме) */}
             {relatedEvents.length > 0 && (
-              <div>
+              <div className="mb-4">
                 <span className="text-slate-500 text-sm">События по этой же теме ({relatedEvents.length}):</span>
                 <div className="mt-2 space-y-2">
                   {relatedEvents.map(ev => (
@@ -778,8 +934,19 @@ export function SituationPage() {
               </div>
             )}
             
-            {/* Кнопка закрытия */}
-            <div className="mt-6 flex justify-end">
+            {/* Кнопки действий */}
+            <div className="mt-6 flex justify-between items-center border-t border-slate-700 pt-4">
+              <button
+                onClick={handleToggleArchive}
+                disabled={savingArchive}
+                className={`px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 ${
+                  selectedEvent.is_archived 
+                    ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/50" 
+                    : "bg-slate-700/50 text-slate-300 hover:bg-slate-700 border border-slate-600"
+                }`}
+              >
+                {savingArchive ? "..." : selectedEvent.is_archived ? "Отметить как актуальное" : "Отметить как не актуально"}
+              </button>
               <button
                 onClick={() => setSelectedEvent(null)}
                 className="px-4 py-2 rounded-lg text-sm bg-slate-700 text-slate-200 hover:bg-slate-600 transition-colors"
