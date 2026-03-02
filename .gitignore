@@ -36,6 +36,12 @@ dist/
 Thumbs.db
 *.log
 
+# --- Локальные скрипты и данные ---
+backend/scripts/
+backend/data/
+backend/docs/
+backend/uploads/
+
 # --- Прочее ---
 backup/
 *.zip
