@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSystemSettings, updateSystemSettings } from "../api/admin";
 import { RussiaRegionsMapSvg } from "../components/RussiaRegionsMapSvg";
 import { requireAdmin, handleAuthError, logout } from "../utils/auth";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { Modal } from "../components/Modal";
 
 type Region = { id: string; name: string };
 
@@ -18,6 +18,7 @@ function normRegionName(s: string) {
 
 export function AdminSettingsPage() {
   const [selectedRegionIds, setSelectedRegionIds] = useState<string[]>([]);
+  const [savedRegionIds, setSavedRegionIds] = useState<string[]>([]); // region_ids из БД для сравнения
   const [departmentName, setDepartmentName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -25,12 +26,9 @@ export function AdminSettingsPage() {
   const [regions, setRegions] = useState<Region[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(false);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [showDeactivateWarning, setShowDeactivateWarning] = useState(false);
   const [mapKey, setMapKey] = useState(0); // Ключ для принудительного обновления карты
   const deptRef = useRef<HTMLTextAreaElement>(null);
-
-  // Закрытие модального окна по Escape
-  const closeNotification = useCallback(() => setNotification(null), []);
-  useEscapeKey(notification !== null, closeNotification);
 
   // Автоматическое изменение высоты textarea
   useEffect(() => {
@@ -69,7 +67,9 @@ export function AdminSettingsPage() {
         const data = await fetchSystemSettings();
         if (data) {
           setDepartmentName(data.department_name || "");
-          setSelectedRegionIds(Array.isArray(data.region_ids) ? data.region_ids.map(String) : []);
+          const ids = Array.isArray(data.region_ids) ? data.region_ids.map(String) : [];
+          setSelectedRegionIds(ids);
+          setSavedRegionIds(ids);
         }
 
         setRegionsLoading(true);
@@ -118,7 +118,7 @@ export function AdminSettingsPage() {
   };
 
   const uploadRegion = async (file: File) => {
-    const token = localStorage.getItem("access_token") || localStorage.getItem("accessToken");
+    const token = localStorage.getItem("zone_jwt") || localStorage.getItem("access_token") || localStorage.getItem("accessToken");
     const fd = new FormData();
     fd.append("file", file);
 
@@ -135,13 +135,8 @@ export function AdminSettingsPage() {
     return resp.json();
   };
 
-  const handleSave = async () => {
+  const doSave = async (deactivateRemoved: boolean) => {
     try {
-      if (selectedRegionIds.length === 0) {
-        setError("Выберите хотя бы один регион.");
-        return;
-      }
-
       setSaving(true);
       setError(null);
 
@@ -149,17 +144,37 @@ export function AdminSettingsPage() {
       await updateSystemSettings({
         department_name: cleanedName.length ? cleanedName : null,
         region_ids: selectedRegionIds,
+        deactivate_removed: deactivateRemoved,
       });
       setDepartmentName(cleanedName);
+      setSavedRegionIds([...selectedRegionIds]); // обновляем сохранённые ID
 
       setNotification({ type: "success", message: "Настройки успешно сохранены" });
       setTimeout(() => setNotification(null), 3000);
     } catch (e: any) {
       console.error(e);
+      if (handleAuthError(e)) return;
       setError(e.message || "Ошибка при сохранении настроек");
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    // Проверяем, есть ли удалённые регионы
+    const removedIds = savedRegionIds.filter((id) => !selectedRegionIds.includes(id));
+    if (removedIds.length > 0) {
+      // Показываем предупреждение
+      setShowDeactivateWarning(true);
+      return;
+    }
+    // Нет удалённых регионов — сохраняем напрямую
+    await doSave(false);
+  };
+
+  const handleConfirmDeactivate = async () => {
+    setShowDeactivateWarning(false);
+    await doSave(true);
   };
 
   return (
@@ -279,7 +294,7 @@ export function AdminSettingsPage() {
                     >
                       {departmentName.length === 0 && (
                         <div className="pointer-events-none absolute inset-0 px-3 py-2 text-xs text-slate-500 flex items-center">
-                          Например: Отдел мониторинга и реагирования, УОМЗ г. Первоуральск
+                          Например: Управление по N-ской области
                         </div>
                       )}
 
@@ -336,7 +351,7 @@ export function AdminSettingsPage() {
 
                     {/* Список регионов */}
                     <div className="rounded-2xl border border-slate-700 bg-slate-900/90">
-                      <div className="max-h-[calc(100vh-400px)] min-h-[300px] overflow-y-auto divide-y divide-slate-800">
+                      <div className="max-h-[360px] min-h-[300px] overflow-y-auto divide-y divide-slate-800">
                         {regionsLoading ? (
                           <div className="px-3 py-3 text-sm text-slate-300">Загрузка списка регионов…</div>
                         ) : (
@@ -472,16 +487,40 @@ export function AdminSettingsPage() {
         </div>
       </div>
 
-      {/* Модальное окно уведомлений */}
-      {notification && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-          onClick={() => setNotification(null)}
-        >
-          <div 
-            className="relative rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-2xl shadow-sky-900/40 max-w-md w-full p-6 backdrop-blur"
-            onClick={(e) => e.stopPropagation()}
+      {/* Модальное окно предупреждения о деактивации */}
+      <Modal open={showDeactivateWarning} onClose={() => setShowDeactivateWarning(false)} closeOnEnter={false}>
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center">
+            <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div className="flex-1 pt-1">
+            <h3 className="text-lg font-semibold mb-2 text-amber-300">Внимание</h3>
+            <p className="text-slate-200 text-sm leading-relaxed">
+              При удалении региона из списка все связанные события и подразделения будут деактивированы.
+              Восстановить их будет невозможно — при повторном выборе этого региона данные будут создаваться заново.
+            </p>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            onClick={() => setShowDeactivateWarning(false)}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-700/60 text-slate-300 hover:bg-slate-700 border border-slate-600/50 transition-colors"
           >
+            Отмена
+          </button>
+          <button
+            onClick={handleConfirmDeactivate}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 transition-colors"
+          >
+            Подтвердить
+          </button>
+        </div>
+      </Modal>
+
+      {/* Модальное окно уведомлений */}
+      <Modal open={!!notification} onClose={() => setNotification(null)} className="relative rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-2xl shadow-sky-900/40 max-w-md w-full p-6 backdrop-blur">
             <button
               onClick={() => setNotification(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors"
@@ -492,7 +531,7 @@ export function AdminSettingsPage() {
               </svg>
             </button>
             <div className="flex items-start gap-4">
-              {notification.type === "success" ? (
+              {notification?.type === "success" ? (
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
                   <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -507,12 +546,12 @@ export function AdminSettingsPage() {
               )}
               <div className="flex-1 pt-1">
                 <h3 className={`text-lg font-semibold mb-2 ${
-                  notification.type === "success" ? "text-sky-300" : "text-red-300"
+                  notification?.type === "success" ? "text-sky-300" : "text-red-300"
                 }`}>
-                  {notification.type === "success" ? "Успешно" : "Ошибка"}
+                  {notification?.type === "success" ? "Успешно" : "Ошибка"}
                 </h3>
                 <p className="text-slate-200 text-sm leading-relaxed">
-                  {notification.message}
+                  {notification?.message}
                 </p>
               </div>
             </div>
@@ -520,7 +559,7 @@ export function AdminSettingsPage() {
               <button
                 onClick={() => setNotification(null)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  notification.type === "success"
+                  notification?.type === "success"
                     ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30"
                     : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
                 }`}
@@ -528,9 +567,7 @@ export function AdminSettingsPage() {
                 Закрыть
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

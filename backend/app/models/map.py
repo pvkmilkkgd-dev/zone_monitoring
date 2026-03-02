@@ -14,6 +14,5 @@ class Map(Base):
     image_path = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    zones = relationship("Zone", back_populates="map", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="map", cascade="all, delete-orphan")
     administrative_zones = relationship("AdministrativeZone", back_populates="map", cascade="all, delete-orphan")

@@ -10,7 +10,6 @@ class Event(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     map_id = Column(Integer, ForeignKey("maps.id", ondelete="CASCADE"), nullable=False)
-    zone_id = Column(Integer, ForeignKey("zones.id", ondelete="SET NULL"), nullable=True)
     administrative_zone_id = Column(Integer, ForeignKey("administrative_zones.id", ondelete="SET NULL"), nullable=True)
     created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="ID пользователя создавшего событие")
     updated_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, comment="ID пользователя изменившего событие")
@@ -28,7 +27,6 @@ class Event(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
 
     map = relationship("Map", back_populates="events")
-    zone = relationship("Zone", back_populates="events")
     administrative_zone = relationship("AdministrativeZone", backref="events")
     created_by = relationship("User", foreign_keys=[created_by_id], backref="created_events")
     updated_by = relationship("User", foreign_keys=[updated_by_id], backref="updated_events")

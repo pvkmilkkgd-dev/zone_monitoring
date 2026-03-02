@@ -4,16 +4,21 @@ import {
   Geographies,
   Geography,
   ZoomableGroup,
+  Marker,
 } from "react-simple-maps";
 import { requireAuth, handleAuthError, logout, canEdit, isAdmin } from "../utils/auth";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { Modal } from "../components/Modal";
 import { fetchSystemSettings, fetchCurrentUser } from "../api/admin";
 import { getAdministrativeZones, type AdministrativeZone } from "../api/administrative-zones";
 import { getEvents, getEvent, updateEvent, addEventComment, deleteEventComment, type EventListItem, type EventDetail } from "../api/events";
 import { getLayers, type Layer } from "../api/layers";
 
-type District = {
+type City = {
   name: string;
+  population: number;
+  lat: number;
+  lon: number;
+  importance: number;
 };
 
 type DistrictStats = {
@@ -27,26 +32,29 @@ type DistrictStats = {
 export function SituationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noRegion, setNoRegion] = useState(false);
   
   // Данные карты
-  const [geoUrl, setGeoUrl] = useState<string | null>(null);
+  const [mergedGeoJson, setMergedGeoJson] = useState<any>(null);
   const [regionName, setRegionName] = useState<string>("");
   const [departmentName, setDepartmentName] = useState<string>("");
   const [currentUserName, setCurrentUserName] = useState<string>("");
-  const [mapConfig, setMapConfig] = useState<{ center: [number, number]; scale: number } | null>(null);
   
   // Данные
   const [zones, setZones] = useState<AdministrativeZone[]>([]);
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [layers, setLayers] = useState<Layer[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
   
   // Фильтр по слоям
   const [selectedLayerFilter, setSelectedLayerFilter] = useState<string>("all");
   
   // Зум карты
   const [zoom] = useState(1);
-  const [center] = useState<[number, number]>([60.5, 59.5]);
-  const [mapScale] = useState(2200);
+  const [currentZoom, setCurrentZoom] = useState(1);
+  const [center, setCenter] = useState<[number, number]>([60.5, 59.5]);
+  const [mapScale, setMapScale] = useState(2200);
+  const [mapRotate, setMapRotate] = useState<[number, number, number] | undefined>(undefined);
   
   // Боковая панель
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
@@ -69,10 +77,6 @@ export function SituationPage() {
     warning: "Внимание",
     alert: "Тревога",
   };
-
-  // Закрытие модального окна по Escape
-  const closeEventModal = useCallback(() => setSelectedEvent(null), []);
-  useEscapeKey(selectedEvent !== null, closeEventModal);
 
   // Получить название слоя по ID
   const getLayerName = (layerId: number | null, subLayerId: number | null, subSubLayerId: number | null): string => {
@@ -127,8 +131,8 @@ export function SituationPage() {
       // Загружаем настройки
       const settings = await fetchSystemSettings();
       if (!settings || !settings.region_ids || settings.region_ids.length === 0) {
-        setError("Регион не выбран в настройках системы");
         setLoading(false);
+        setNoRegion(true);
         return;
       }
 
@@ -137,34 +141,101 @@ export function SituationPage() {
         setDepartmentName(settings.department_name);
       }
 
-      const regionId = settings.region_ids[0];
-      
-      // Загружаем информацию о регионе
+      const selectedIds = settings.region_ids.map(String);
+
+      // Загружаем информацию о регионах
       const regionsResp = await fetch("/api/regions");
       if (regionsResp.ok) {
         const regions = await regionsResp.json();
-        const region = regions.find((r: any) => r.id === regionId);
-        if (region) {
-          setRegionName(region.name);
+        const selectedRegions = regions.filter((r: any) => selectedIds.includes(r.id));
+        if (selectedRegions.length > 0) {
+          setRegionName(selectedRegions.map((r: any) => r.name).join(", "));
         }
       }
-      
-      // Загружаем GeoJSON
-      const geoUrl = `/maps/ru/region/${regionId}/districts.geojson`;
-      setGeoUrl(geoUrl);
-      
-      // Загружаем конфигурацию карты
-      try {
-        const configResp = await fetch(`/maps/ru/region/${regionId}/config.json`);
-        if (configResp.ok) {
-          const config = await configResp.json();
-          setMapConfig(config);
-          if (config.center) {
-            setCenter(config.center);
+
+      // Загружаем GeoJSON и города из ВСЕХ выбранных регионов параллельно
+      const geoFetches = selectedIds.map(async (id) => {
+        const resp = await fetch(`/maps/ru/region/${id}/districts.geojson?v=2`);
+        if (!resp.ok) return null;
+        return resp.json();
+      });
+      const cityFetches = selectedIds.map(async (id) => {
+        try {
+          const resp = await fetch(`/maps/ru/region/${id}/cities.json`);
+          if (!resp.ok) return [];
+          return resp.json();
+        } catch { return []; }
+      });
+      const [geoJsons, citiesArrays] = await Promise.all([
+        Promise.all(geoFetches).then(r => r.filter(Boolean)),
+        Promise.all(cityFetches),
+      ]);
+      setCities(citiesArrays.flat());
+
+      // Объединяем все features
+      const allFeatures: any[] = [];
+      geoJsons.forEach((gj: any) => {
+        if (gj?.features) allFeatures.push(...gj.features);
+      });
+
+      const merged = { type: "FeatureCollection", features: allFeatures };
+      setMergedGeoJson(merged);
+
+      // Вычисляем центр и масштаб по объединённой геометрии
+      if (allFeatures.length > 0) {
+        let minLon = Infinity, minLat = Infinity;
+        let maxLon = -Infinity, maxLat = -Infinity;
+
+        const processCoords = (coords: any[]): void => {
+          if (typeof coords[0] === 'number') {
+            const [lon, lat] = coords;
+            minLon = Math.min(minLon, lon);
+            maxLon = Math.max(maxLon, lon);
+            minLat = Math.min(minLat, lat);
+            maxLat = Math.max(maxLat, lat);
+          } else {
+            coords.forEach((item: any) => processCoords(item));
+          }
+        };
+
+        allFeatures.forEach((f: any) => {
+          const geom = f.geometry;
+          if (!geom?.coordinates) return;
+          if (geom.type === 'MultiPolygon') {
+            geom.coordinates.forEach((p: any) => p.forEach((r: any) => r.forEach((c: any) => processCoords(c))));
+          } else if (geom.type === 'Polygon') {
+            geom.coordinates.forEach((r: any) => r.forEach((c: any) => processCoords(c)));
+          } else {
+            processCoords(geom.coordinates);
+          }
+        });
+
+        if (minLon !== Infinity) {
+          // API сдвигает координаты через ST_ShiftLongitude для антимеридиана
+          const crossesAntimeridian = maxLon > 180;
+          const centerLon = (minLon + maxLon) / 2;
+          const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
+          const mercYCenter = (mercatorY(minLat) + mercatorY(maxLat)) / 2;
+          const centerLat = (2 * Math.atan(Math.exp(mercYCenter)) - Math.PI / 2) * 180 / Math.PI;
+
+          const svgW = 800;
+          const svgH = 600;
+          const deltaLonRad = (maxLon - minLon) * Math.PI / 180;
+          const deltaMercY = Math.abs(mercatorY(maxLat) - mercatorY(minLat));
+          const scaleX = svgW / deltaLonRad;
+          const scaleY = svgH / deltaMercY;
+          const computedScale = Math.max(500, Math.min(80000, Math.round(Math.min(scaleX, scaleY) * 0.7)));
+          setMapScale(computedScale);
+
+          if (crossesAntimeridian) {
+            const rotateLon = centerLon > 180 ? centerLon - 360 : centerLon;
+            setCenter([0, centerLat]);
+            setMapRotate([-rotateLon, 0, 0]);
+          } else {
+            setCenter([centerLon, centerLat]);
+            setMapRotate(undefined);
           }
         }
-      } catch (e) {
-        console.log("Config not found, using defaults");
       }
       
       // Загружаем данные
@@ -435,6 +506,29 @@ export function SituationPage() {
     );
   }
 
+  if (noRegion) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 p-4">
+        <div className="rounded-2xl border border-sky-700/50 bg-sky-950/40 px-6 py-8 max-w-md text-center">
+          <p className="text-slate-200 text-lg font-medium mb-2">Регион не выбран</p>
+          <p className="text-slate-400 text-sm mb-4">Для отображения обстановки необходимо выбрать регион мониторинга в настройках системы.</p>
+          {isAdmin() ? (
+            <button
+              onClick={() => window.location.href = "/admin"}
+              className="px-4 py-2 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30 text-sm font-medium transition-colors"
+            >
+              Перейти в настройки
+            </button>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Обратитесь к администратору для настройки системы.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-slate-900 p-4">
@@ -460,12 +554,13 @@ export function SituationPage() {
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-sky-950 to-slate-900 overflow-hidden">
       {/* Карта на весь экран */}
-      {geoUrl && (
+      {mergedGeoJson && (
         <ComposableMap
           projection="geoMercator"
           projectionConfig={{
             scale: mapScale,
             center: center,
+            ...(mapRotate ? { rotate: mapRotate } : {}),
           }}
           style={{ 
             width: "100vw", 
@@ -477,8 +572,9 @@ export function SituationPage() {
             zoom={zoom}
             minZoom={0.5}
             maxZoom={4}
+            onMoveEnd={({ zoom: z }) => setCurrentZoom(z)}
           >
-              <Geographies geography={geoUrl}>
+              <Geographies geography={mergedGeoJson}>
                 {({ geographies }) =>
                   geographies.map((geo) => {
                     const name = geo.properties?.name || geo.properties?.NAME || "";
@@ -517,6 +613,44 @@ export function SituationPage() {
                   })
                 }
               </Geographies>
+              {cities
+                .filter(city => {
+                  if (city.importance <= 3) return true;
+                  if (city.importance <= 8) return currentZoom >= 1.3;
+                  if (city.importance <= 15) return currentZoom >= 1.8;
+                  return currentZoom >= 2.5;
+                })
+                .map((city) => {
+                  const baseSize = city.importance <= 1 ? 11
+                    : city.importance <= 3 ? 9
+                    : city.importance <= 8 ? 8
+                    : 7;
+                  return (
+                    <Marker key={`${city.name}-${city.lat}-${city.lon}`} coordinates={[city.lon, city.lat]}>
+                      <circle
+                        r={Math.max(1, 2.5 - city.importance * 0.05) / currentZoom}
+                        fill="#fafafa"
+                        stroke="#334155"
+                        strokeWidth={0.3 / currentZoom}
+                      />
+                      <text
+                        textAnchor="middle"
+                        y={-(4 / currentZoom)}
+                        style={{
+                          fontFamily: "system-ui, sans-serif",
+                          fontSize: `${baseSize / currentZoom}px`,
+                          fill: "#e2e8f0",
+                          stroke: "#0f172a",
+                          strokeWidth: 3 / currentZoom,
+                          paintOrder: "stroke",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        {city.name}
+                      </text>
+                    </Marker>
+                  );
+                })}
             </ZoomableGroup>
           </ComposableMap>
       )}
@@ -739,22 +873,19 @@ export function SituationPage() {
       </div>
       
       {/* Индикатор загрузки события */}
-      {loadingEvent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full"></div>
-        </div>
-      )}
+      <Modal open={loadingEvent} onClose={() => {}} className="bg-transparent border-0 shadow-none p-0">
+        <div className="animate-spin w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full"></div>
+      </Modal>
 
       {/* Модальное окно с деталями события */}
-      {selectedEvent && !loadingEvent && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setSelectedEvent(null)}
-        >
-          <div 
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <Modal
+        open={selectedEvent !== null && !loadingEvent}
+        onClose={() => setSelectedEvent(null)}
+        closeOnEnter={false}
+        className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+      >
+        {selectedEvent && (
+          <>
             {/* Заголовок */}
             <div className="flex items-start justify-between gap-4 mb-4">
               <div className="flex items-center gap-3 flex-wrap">
@@ -954,9 +1085,9 @@ export function SituationPage() {
                 Закрыть
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

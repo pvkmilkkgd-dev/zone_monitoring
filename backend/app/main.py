@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1 import admin_users
 from app.api.v1.admin_settings import router as admin_settings_router
@@ -18,11 +19,13 @@ from app.api.v1.routes.layers import router as layers_router
 from app.api.v1.routes.district_descriptions import router as district_descriptions_router
 from app.api.v1.routes.audit import router as audit_router
 from app.core.bootstrap import require_bootstrap_completed
+from app.core.config import settings
 from app.core.exceptions import (
     validation_exception_handler,
     database_exception_handler,
     general_exception_handler,
 )
+from app.core.security import create_access_token
 from app.routers.users import router as users_router
 from app.api.maps import router as maps_router
 from app.api.regions import router as regions_router
@@ -52,7 +55,48 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-New-Token"],
 )
+
+
+class SlidingTokenMiddleware(BaseHTTPMiddleware):
+    """
+    Sliding window для JWT-токена.
+    При каждом успешном аутентифицированном запросе к API
+    выдаёт обновлённый токен в заголовке X-New-Token,
+    продлевая сессию на ACCESS_TOKEN_EXPIRE_MINUTES от текущего момента.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Обновляем токен только для успешных запросов к API
+        if (
+            request.url.path.startswith("/api/")
+            and response.status_code < 400
+        ):
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+                try:
+                    from jose import jwt as jose_jwt
+
+                    payload = jose_jwt.decode(
+                        token,
+                        settings.SECRET_KEY,
+                        algorithms=[settings.ALGORITHM],
+                    )
+                    sub = payload.get("sub")
+                    if sub:
+                        new_token = create_access_token(subject=sub)
+                        response.headers["X-New-Token"] = new_token
+                except Exception:
+                    pass  # Токен невалидный — не обновляем
+
+        return response
+
+
+app.add_middleware(SlidingTokenMiddleware)
 
 
 @app.get("/ping", tags=["default"])

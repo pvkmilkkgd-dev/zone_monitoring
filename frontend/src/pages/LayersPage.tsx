@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useEffect, useState } from "react";
+import { Modal } from "../components/Modal";
 import {
   DndContext,
   closestCenter,
@@ -389,21 +389,6 @@ export function LayersPage() {
   // Развернутые слои
   const [expandedLayers, setExpandedLayers] = useState<Set<number>>(new Set());
   const [expandedSubLayers, setExpandedSubLayers] = useState<Set<number>>(new Set());
-
-  // Закрытие модальных окон по Escape
-  const closeAddModalCallback = useCallback(() => {
-    setAddModal({ open: false, type: 'layer', parentId: null, editItem: null });
-    setAddName('');
-    setAddError(null);
-  }, []);
-  const closeDeleteModalCallback = useCallback(() => {
-    setDeleteModal({ open: false, type: 'layer', id: null, name: '' });
-  }, []);
-  const closeSuccessMessage = useCallback(() => setSuccessMessage(null), []);
-
-  useEscapeKey(addModal.open, closeAddModalCallback);
-  useEscapeKey(deleteModal.open, closeDeleteModalCallback);
-  useEscapeKey(successMessage !== null, closeSuccessMessage);
 
   useEffect(() => {
     if (!requireEditor()) return;
@@ -861,10 +846,12 @@ export function LayersPage() {
       </div>
 
       {/* Модальное окно добавления */}
-      {addModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeAddModal}></div>
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+      <Modal
+        open={addModal.open}
+        onClose={closeAddModal}
+        closeOnEnter={false}
+        className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl"
+      >
             <h3 className="text-lg font-semibold text-white mb-4">{getModalTitle()}</h3>
             
             {addError && (
@@ -902,15 +889,14 @@ export function LayersPage() {
                 {saving ? "..." : "Добавить"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Модальное окно подтверждения удаления */}
-      {deleteModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteModal({ open: false, type: 'layer', id: null, name: '' })}></div>
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+      <Modal
+        open={deleteModal.open}
+        onClose={() => setDeleteModal({ open: false, type: 'layer', id: null, name: '' })}
+        className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl"
+      >
             <h3 className="text-lg font-semibold text-white mb-2">Подтверждение удаления</h3>
             <p className="text-slate-300 text-sm mb-6">
               Вы действительно хотите удалить {
@@ -938,15 +924,14 @@ export function LayersPage() {
                 Удалить
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Модальное окно успеха */}
-      {successMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSuccessMessage(null)}></div>
-          <div className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+      <Modal
+        open={successMessage !== null}
+        onClose={() => setSuccessMessage(null)}
+        className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl"
+      >
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
                 <span className="text-green-400 text-xl">✓</span>
@@ -962,9 +947,7 @@ export function LayersPage() {
                 OK
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

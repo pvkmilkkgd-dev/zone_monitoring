@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { requireEditor, handleAuthError, logout, isAdmin, canEditEvent } from "../utils/auth";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { Modal } from "../components/Modal";
 import { fetchSystemSettings } from "../api/admin";
 import { getAdministrativeZones, type AdministrativeZone } from "../api/administrative-zones";
 import { getEvents, getEvent, createEvent, updateEvent, deleteEvent, type EventListItem, type EventDetail } from "../api/events";
@@ -13,6 +13,7 @@ type District = {
 export function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noRegion, setNoRegion] = useState(false);
   
   // Список районов и подразделений
   const [allDistricts, setAllDistricts] = useState<District[]>([]);
@@ -74,14 +75,10 @@ export function EventsPage() {
     alert: "Тревога",
   };
 
-  // Функции закрытия модальных окон (для useEscapeKey)
+  // Функции закрытия модальных окон
   const closeViewEvent = useCallback(() => {
     setViewEvent(null);
     setIsEditingEvent(false);
-  }, []);
-
-  const closeDeleteModalCallback = useCallback(() => {
-    setDeleteModal({ open: false, eventId: null, eventTitle: "" });
   }, []);
 
   const closeDeleteSuccessModal = useCallback(() => {
@@ -91,12 +88,6 @@ export function EventsPage() {
   const closeCreateSuccessModal = useCallback(() => {
     setCreateSuccessModal({ open: false, eventTitle: "" });
   }, []);
-
-  // Закрытие модальных окон по Escape
-  useEscapeKey(viewEvent !== null, closeViewEvent);
-  useEscapeKey(deleteModal.open, closeDeleteModalCallback);
-  useEscapeKey(deleteSuccessModal.open, closeDeleteSuccessModal);
-  useEscapeKey(createSuccessModal.open, closeCreateSuccessModal);
 
   // Загрузка деталей события
   const handleViewEvent = async (eventId: number) => {
@@ -255,16 +246,14 @@ export function EventsPage() {
       // Загружаем настройки системы для получения выбранного региона
       const settings = await fetchSystemSettings();
       if (!settings || !settings.region_ids || settings.region_ids.length === 0) {
-        setError("Регион не выбран в настройках системы");
+        // Регион не выбран — загружаем данные без карты районов
         setLoading(false);
+        setNoRegion(true);
         return;
       }
 
-      const regionId = settings.region_ids[0];
-      
-      // Загружаем GeoJSON для получения списка районов
-      const geoUrl = `/maps/ru/region/${regionId}/districts.geojson`;
-      await loadDistricts(geoUrl);
+      // Загружаем районы из ВСЕХ выбранных регионов
+      await loadDistrictsFromAllRegions(settings.region_ids);
       
       // Загружаем административные зоны
       const zonesData = await getAdministrativeZones();
@@ -291,23 +280,30 @@ export function EventsPage() {
     }
   };
 
-  const loadDistricts = async (url: string) => {
+  const loadDistrictsFromAllRegions = async (regionIds: string[]) => {
     try {
-      const response = await fetch(url);
-      const geojson = await response.json();
-      
-      if (!geojson.features || geojson.features.length === 0) {
-        return;
-      }
+      const fetches = regionIds.map(async (id) => {
+        const resp = await fetch(`/maps/ru/region/${id}/districts.geojson?v=2`);
+        if (!resp.ok) return null;
+        return resp.json();
+      });
+      const geoJsons = (await Promise.all(fetches)).filter(Boolean);
 
       const excludeNames = ['неизвестная территория', 'unknown'];
-      const districts: District[] = geojson.features
-        .map((f: any) => ({
-          name: f.properties?.name || f.properties?.NAME || ''
-        }))
-        .filter((d: District) => d.name && !excludeNames.includes(d.name.toLowerCase()))
-        .sort((a: District, b: District) => a.name.localeCompare(b.name, 'ru'));
-      
+      const namesSet = new Set<string>();
+      geoJsons.forEach((gj: any) => {
+        gj.features?.forEach((f: any) => {
+          const name = f.properties?.name || f.properties?.NAME || '';
+          if (name && !excludeNames.includes(name.toLowerCase())) {
+            namesSet.add(name);
+          }
+        });
+      });
+
+      const districts: District[] = Array.from(namesSet)
+        .map(name => ({ name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
       setAllDistricts(districts);
     } catch (e) {
       console.error("Ошибка загрузки районов:", e);
@@ -515,6 +511,18 @@ export function EventsPage() {
 
       {loading ? (
         <div className="max-w-7xl mx-auto py-10 text-center text-slate-300">Загрузка...</div>
+      ) : noRegion ? (
+        <div className="max-w-7xl mx-auto py-16 text-center">
+          <div className="rounded-2xl border border-sky-700/50 bg-sky-950/40 px-6 py-8 max-w-md mx-auto">
+            <p className="text-slate-200 text-lg font-medium mb-2">Регион не выбран</p>
+            <p className="text-slate-400 text-sm mb-4">Для работы с событиями необходимо выбрать регион мониторинга в настройках системы.</p>
+            {isAdmin() && (
+              <button onClick={() => window.location.href = "/admin"} className="px-4 py-2 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30 text-sm font-medium transition-colors">
+                Перейти в настройки
+              </button>
+            )}
+          </div>
+        </div>
       ) : error ? (
         <div className="max-w-7xl mx-auto">
           <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-4 py-3 text-red-100">
@@ -811,37 +819,27 @@ export function EventsPage() {
       )}
 
       {/* Модальное окно подтверждения удаления */}
-      {deleteModal.open && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={closeDeleteModal}
-        >
-          <div 
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+      <Modal open={deleteModal.open} onClose={closeDeleteModal} className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <h3 className="text-lg font-semibold mb-2">Подтверждение удаления</h3>
+        <p className="text-sm text-slate-300 mb-4">
+          Вы уверены, что хотите удалить событие "{deleteModal.eventTitle}"? 
+          Это действие нельзя отменить.
+        </p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={closeDeleteModal}
+            className="px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors"
           >
-            <h3 className="text-lg font-semibold mb-2">Подтверждение удаления</h3>
-            <p className="text-sm text-slate-300 mb-4">
-              Вы уверены, что хотите удалить событие "{deleteModal.eventTitle}"? 
-              Это действие нельзя отменить.
-            </p>
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={closeDeleteModal}
-                className="px-4 py-2 rounded-lg text-sm text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 rounded-lg text-sm bg-red-500 text-white hover:bg-red-600 transition-colors"
-              >
-                Удалить
-              </button>
-            </div>
-          </div>
+            Отмена
+          </button>
+          <button
+            onClick={confirmDelete}
+            className="px-4 py-2 rounded-lg text-sm bg-red-500 text-white hover:bg-red-600 transition-colors"
+          >
+            Удалить
+          </button>
         </div>
-      )}
+      </Modal>
 
       {/* Индикатор загрузки события */}
       {loadingEvent && (
@@ -852,14 +850,7 @@ export function EventsPage() {
 
       {/* Модальное окно просмотра/редактирования события */}
       {viewEvent && !loadingEvent && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => { setViewEvent(null); setIsEditingEvent(false); }}
-        >
-          <div 
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <Modal open onClose={closeViewEvent} closeOnEnter={false} className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-3xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             {!isEditingEvent ? (
               /* Режим просмотра */
               <>
@@ -1156,58 +1147,46 @@ export function EventsPage() {
                 </div>
               </>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Модальное окно успешного удаления */}
-      {/* Модальное окно успешного удаления */}
-      {deleteSuccessModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteSuccessModal({ open: false, eventTitle: "" })}></div>
-          <div className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                <span className="text-green-400 text-xl">✓</span>
-              </div>
-              <h3 className="text-lg font-semibold text-white">Успешно</h3>
-            </div>
-            <p className="text-slate-300 text-sm mb-6">Событие "{deleteSuccessModal.eventTitle}" успешно удалено</p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setDeleteSuccessModal({ open: false, eventTitle: "" })}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
-              >
-                OK
-              </button>
-            </div>
+      <Modal open={deleteSuccessModal.open} onClose={closeDeleteSuccessModal} className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+            <span className="text-green-400 text-xl">✓</span>
           </div>
+          <h3 className="text-lg font-semibold text-white">Успешно</h3>
         </div>
-      )}
+        <p className="text-slate-300 text-sm mb-6">Событие "{deleteSuccessModal.eventTitle}" успешно удалено</p>
+        <div className="flex justify-end">
+          <button
+            onClick={closeDeleteSuccessModal}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
 
       {/* Модальное окно успешного создания */}
-      {createSuccessModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCreateSuccessModal({ open: false, eventTitle: "" })}></div>
-          <div className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                <span className="text-green-400 text-xl">✓</span>
-              </div>
-              <h3 className="text-lg font-semibold text-white">Успешно</h3>
-            </div>
-            <p className="text-slate-300 text-sm mb-6">Событие "{createSuccessModal.eventTitle}" успешно создано</p>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setCreateSuccessModal({ open: false, eventTitle: "" })}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
-              >
-                OK
-              </button>
-            </div>
+      <Modal open={createSuccessModal.open} onClose={closeCreateSuccessModal} className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+            <span className="text-green-400 text-xl">✓</span>
           </div>
+          <h3 className="text-lg font-semibold text-white">Успешно</h3>
         </div>
-      )}
+        <p className="text-slate-300 text-sm mb-6">Событие "{createSuccessModal.eventTitle}" успешно создано</p>
+        <div className="flex justify-end">
+          <button
+            onClick={closeCreateSuccessModal}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-green-500 text-white hover:bg-green-600 transition"
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

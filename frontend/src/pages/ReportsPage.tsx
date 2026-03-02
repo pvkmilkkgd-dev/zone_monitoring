@@ -15,6 +15,7 @@ type District = {
 export function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [noRegion, setNoRegion] = useState(false);
   
   // Данные
   const [allDistricts, setAllDistricts] = useState<District[]>([]);
@@ -82,16 +83,13 @@ export function ReportsPage() {
 
       const settings = await fetchSystemSettings();
       if (!settings || !settings.region_ids || settings.region_ids.length === 0) {
-        setError("Регион не выбран в настройках системы");
         setLoading(false);
+        setNoRegion(true);
         return;
       }
 
-      const regionId = settings.region_ids[0];
-      
-      // Загружаем GeoJSON для получения списка районов
-      const geoUrl = `/maps/ru/region/${regionId}/districts.geojson`;
-      await loadDistricts(geoUrl);
+      // Загружаем районы из ВСЕХ выбранных регионов
+      await loadDistrictsFromAllRegions(settings.region_ids);
       
       // Загружаем данные
       const [zonesData, eventsData, layersData] = await Promise.all([
@@ -113,23 +111,30 @@ export function ReportsPage() {
     }
   };
 
-  const loadDistricts = async (url: string) => {
+  const loadDistrictsFromAllRegions = async (regionIds: string[]) => {
     try {
-      const response = await fetch(url);
-      const geojson = await response.json();
-      
-      if (!geojson.features || geojson.features.length === 0) {
-        return;
-      }
+      const fetches = regionIds.map(async (id) => {
+        const resp = await fetch(`/maps/ru/region/${id}/districts.geojson?v=2`);
+        if (!resp.ok) return null;
+        return resp.json();
+      });
+      const geoJsons = (await Promise.all(fetches)).filter(Boolean);
 
       const excludeNames = ['неизвестная территория', 'unknown'];
-      const districts: District[] = geojson.features
-        .map((f: any) => ({
-          name: f.properties?.name || f.properties?.NAME || ''
-        }))
-        .filter((d: District) => d.name && !excludeNames.includes(d.name.toLowerCase()))
-        .sort((a: District, b: District) => a.name.localeCompare(b.name, 'ru'));
-      
+      const namesSet = new Set<string>();
+      geoJsons.forEach((gj: any) => {
+        gj.features?.forEach((f: any) => {
+          const name = f.properties?.name || f.properties?.NAME || '';
+          if (name && !excludeNames.includes(name.toLowerCase())) {
+            namesSet.add(name);
+          }
+        });
+      });
+
+      const districts: District[] = Array.from(namesSet)
+        .map(name => ({ name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
       setAllDistricts(districts);
     } catch (e) {
       console.error("Ошибка загрузки районов:", e);
@@ -453,6 +458,18 @@ export function ReportsPage() {
 
       {loading ? (
         <div className="max-w-7xl mx-auto py-10 text-center text-slate-300">Загрузка...</div>
+      ) : noRegion ? (
+        <div className="max-w-7xl mx-auto py-16 text-center">
+          <div className="rounded-2xl border border-sky-700/50 bg-sky-950/40 px-6 py-8 max-w-md mx-auto">
+            <p className="text-slate-200 text-lg font-medium mb-2">Регион не выбран</p>
+            <p className="text-slate-400 text-sm mb-4">Для работы с отчётами необходимо выбрать регион мониторинга в настройках системы.</p>
+            {isAdmin() && (
+              <button onClick={() => window.location.href = "/admin"} className="px-4 py-2 rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30 text-sm font-medium transition-colors">
+                Перейти в настройки
+              </button>
+            )}
+          </div>
+        </div>
       ) : error ? (
         <div className="max-w-7xl mx-auto">
           <div className="rounded-xl border border-red-500/60 bg-red-500/10 px-4 py-3 text-red-100">

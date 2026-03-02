@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchUsers, createUserByAdmin, updateUserRole, resetUserPassword, updateUserByAdmin, UserDto } from "../api/admin";
 import { requireAdmin, handleAuthError, logout } from "../utils/auth";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { Modal } from "../components/Modal";
 
 type UserRole = "admin" | "editor_plus" | "editor" | "viewer";
 
@@ -67,10 +67,6 @@ export function UsersPage() {
     setPasswordError(null);
   }, []);
   const closeSuccessModal = useCallback(() => setShowSuccessModal(false), []);
-
-  useEscapeKey(editingUser !== null, closeEditModal);
-  useEscapeKey(resettingPasswordFor !== null, closeResetPasswordModal);
-  useEscapeKey(showSuccessModal, closeSuccessModal);
 
   useEffect(() => {
     if (!requireAdmin()) return;
@@ -608,15 +604,12 @@ export function UsersPage() {
         </div>
 
         {/* Модальное окно для редактирования пользователя */}
-        {editingUser !== null && (
-          <div 
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={closeEditModal}
-          >
-            <div 
-              className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
-              onClick={(e) => e.stopPropagation()}
-            >
+        <Modal
+          open={editingUser !== null}
+          onClose={closeEditModal}
+          closeOnEnter={false}
+          className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
+        >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-slate-100">
                   Редактировать пользователя
@@ -696,20 +689,15 @@ export function UsersPage() {
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+        </Modal>
 
         {/* Модальное окно для сброса пароля */}
-        {resettingPasswordFor !== null && (
-          <div 
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={closeResetPasswordModal}
-          >
-            <div 
-              className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
-              onClick={(e) => e.stopPropagation()}
-            >
+        <Modal
+          open={resettingPasswordFor !== null}
+          onClose={closeResetPasswordModal}
+          closeOnEnter={false}
+          className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
+        >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-slate-100">
                   Сменить пароль пользователя
@@ -802,20 +790,14 @@ export function UsersPage() {
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+        </Modal>
 
         {/* Модальное окно успешного сохранения */}
-        {showSuccessModal && (
-          <div 
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={closeSuccessModal}
-          >
-            <div 
-              className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-sky-500/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
-              onClick={(e) => e.stopPropagation()}
-            >
+        <Modal
+          open={showSuccessModal}
+          onClose={closeSuccessModal}
+          className="w-full max-w-md rounded-3xl bg-slate-900/95 border border-sky-500/60 shadow-xl shadow-sky-900/40 p-6 lg:p-8 backdrop-blur"
+        >
               <div className="flex flex-col items-center text-center">
                 {/* Иконка успеха */}
                 <div className="mb-4 rounded-full bg-sky-500/20 p-4">
@@ -842,9 +824,7 @@ export function UsersPage() {
                   Отлично
                 </button>
               </div>
-            </div>
-          </div>
-        )}
+        </Modal>
       </div>
     </div>
   );

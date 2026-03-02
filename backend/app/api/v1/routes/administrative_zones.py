@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_roles
 from app.db.session import get_db
+from app.models.map import Map
 from app.models.user import User
 from app.schemas.administrative_zone import (
     AdministrativeZone,
@@ -60,6 +61,21 @@ def create_administrative_zone(
     db: Session = Depends(get_db),
 ):
     """Создать новую административную зону (только для редакторов и администраторов)."""
+    # Валидация: проверяем существование карты
+    map_exists = db.query(Map).filter(Map.id == zone_data.map_id).first()
+    if not map_exists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Карта с ID {zone_data.map_id} не найдена",
+        )
+    
+    # Валидация: district_names не должен быть пустым
+    if not zone_data.district_names or len(zone_data.district_names) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Список административных районов не может быть пустым",
+        )
+    
     service = AdministrativeZoneService(db)
     zone = service.create_zone(zone_data)
     

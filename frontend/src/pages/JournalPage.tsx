@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { getAuditLogs, getAuditActions, getAuditEntityTypes, exportAuditLogs, type AuditLogItem } from "../api/audit";
 import { fetchUsers, type UserDto } from "../api/admin";
 import { requireAdmin, handleAuthError, logout, isAdmin } from "../utils/auth";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { Modal } from "../components/Modal";
 
 // Русские названия действий
 const ACTION_LABELS: Record<string, string> = {
@@ -65,7 +65,6 @@ export function JournalPage() {
 
   // Закрытие модального окна по Escape
   const closeLogModal = useCallback(() => setSelectedLog(null), []);
-  useEscapeKey(selectedLog !== null, closeLogModal);
 
   useEffect(() => {
     if (!requireAdmin()) return;
@@ -476,15 +475,12 @@ export function JournalPage() {
       </div>
 
       {/* Модальное окно с деталями записи */}
-      {selectedLog && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={closeLogModal}
-        >
-          <div 
-            className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-xl max-h-[80vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
+      <Modal
+        open={selectedLog !== null}
+        onClose={closeLogModal}
+        className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-xl max-h-[80vh] overflow-y-auto"
+      >
+        {selectedLog && (
             <div className="p-6">
               {/* Заголовок */}
               <div className="flex items-center justify-between mb-4">
@@ -580,9 +576,8 @@ export function JournalPage() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Modal>
     </div>
   );
 }

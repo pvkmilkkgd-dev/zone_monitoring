@@ -16,7 +16,6 @@ from app.models import (  # noqa: F401
     Map,
     SystemSettings,
     User,
-    Zone,
 )
 
 # this is the Alembic Config object, which provides
@@ -39,6 +38,20 @@ target_metadata = Base.metadata
 # ... etc.
 
 
+# Исключаем системные таблицы PostGIS из отслеживания Alembic
+EXCLUDED_TABLES = {"spatial_ref_sys", "geography_columns", "geometry_columns", "raster_columns", "raster_overviews"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    """
+    Функция фильтрации объектов для Alembic autogenerate.
+    Исключает системные таблицы PostGIS из миграций.
+    """
+    if type_ == "table" and name in EXCLUDED_TABLES:
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -57,6 +70,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -78,7 +92,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

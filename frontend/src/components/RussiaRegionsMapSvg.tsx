@@ -44,6 +44,12 @@ function walkCoords(geom: GeoJSONFeature["geometry"], cb: (pt: LonLat) => void) 
 }
 
 function project([lon, lat]: LonLat): [number, number] {
+  // Обработка пересечения антимеридиана для России
+  // Все отрицательные долготы (западнее 0°) сдвигаем на +360
+  // Это касается Чукотки, которая пересекает 180-й меридиан
+  if (lon < 0) {
+    lon = lon + 360;
+  }
   return [lon, -lat];
 }
 
@@ -132,6 +138,7 @@ export function RussiaRegionsMapSvg({
 
     for (const f of fc.features) {
       walkCoords(f.geometry, (pt) => {
+        // project() уже обрабатывает пересечение антимеридиана
         const [x, y] = project(pt);
         if (x < minX) minX = x;
         if (y < minY) minY = y;
@@ -147,25 +154,23 @@ export function RussiaRegionsMapSvg({
     if (!bbox) return null;
     const w = bbox.maxX - bbox.minX;
     const h = bbox.maxY - bbox.minY;
-    
-    // Увеличиваем вертикальный padding для более вертикального вида карты
-    // Горизонтальный padding остается стандартным, вертикальный увеличен
-    const horizontalPad = padding;
-    const verticalPad = padding * 2; // Увеличенный вертикальный padding
-    
-    const vbW = w + horizontalPad * 2;
-    const vbH = h + verticalPad * 2;
+
+    const pad = padding;
+
+    const vbW = w + pad * 2;
+    const vbH = h + pad * 2;
 
     const mapXY = (pt: LonLat): [number, number] => {
       const [x, y] = project(pt);
-      return [x - bbox.minX + horizontalPad, y - bbox.minY + verticalPad];
+      return [x - bbox.minX + pad, y - bbox.minY + pad];
     };
 
-    return { vbW, vbH, mapXY };
+    return { vbW, vbH, mapXY, pad };
   }, [bbox, padding]);
 
   const paths = useMemo(() => {
     if (!fc || !view || !bbox) return [];
+    const pad = view.pad;
 
     return fc.features
       .map((f) => {
@@ -183,8 +188,8 @@ export function RussiaRegionsMapSvg({
 
         walkCoords(f.geometry, (pt) => {
           const [x, y] = project(pt);
-          const vx = x - bbox.minX + padding;
-          const vy = y - bbox.minY + padding;
+          const vx = x - bbox.minX + pad;
+          const vy = y - bbox.minY + pad;
 
           if (vx < fMinX) fMinX = vx;
           if (vy < fMinY) fMinY = vy;
@@ -206,13 +211,27 @@ export function RussiaRegionsMapSvg({
 
   const fullVB = useMemo<ViewBox | null>(() => {
     if (!view) return null;
-    return {
-      x: 0,
-      y: 0,
-      w: view.vbW,
-      h: view.vbH,
-    };
-  }, [view]);
+
+    const mapW = view.vbW;
+    const mapH = view.vbH;
+
+    if (svgSize.w > 0 && svgSize.h > 0) {
+      const containerAR = svgSize.w / svgSize.h;
+      const mapAR = mapW / mapH;
+
+      if (containerAR < mapAR) {
+        const newH = mapW / containerAR;
+        const yOffset = (newH - mapH) / 2;
+        return { x: 0, y: -yOffset, w: mapW, h: newH };
+      } else {
+        const newW = mapH * containerAR;
+        const xOffset = (newW - mapW) / 2;
+        return { x: -xOffset, y: 0, w: newW, h: mapH };
+      }
+    }
+
+    return { x: 0, y: 0, w: mapW, h: mapH };
+  }, [view, svgSize]);
 
   const targetVB = useMemo<ViewBox | null>(() => {
     if (!view || !fullVB) return null;
@@ -337,16 +356,20 @@ export function RussiaRegionsMapSvg({
     return clamped;
   }, [selectedRegionIds, paths, view, fullVB]);
 
-  // Инициализация currentVB только один раз при появлении fullVB
+  // Инициализация и анимация viewBox
   useEffect(() => {
-    if (fullVB && !initializedRef.current) {
-      setCurrentVB(fullVB);
-      initializedRef.current = true;
-    }
-  }, [fullVB]);
+    if (!fullVB || !targetVB) return;
 
-  useEffect(() => {
-    if (!targetVB || !currentVB) return;
+    // Первая инициализация: сразу показываем целевой viewBox (без анимации)
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      prevTargetVBRef.current = targetVB;
+      setCurrentVB(targetVB);
+      return;
+    }
+
+    // Последующие изменения: анимируем переход
+    if (!currentVB) return;
 
     // Проверяем, изменился ли targetVB по сравнению с предыдущим значением
     const prev = prevTargetVBRef.current;
@@ -358,18 +381,16 @@ export function RussiaRegionsMapSvg({
         Math.abs(prev.h - targetVB.h) < 0.001;
       
       if (prevSame) {
-        // targetVB не изменился, проверяем текущее состояние
         const currentSame =
           Math.abs(currentVB.x - targetVB.x) < 0.001 &&
           Math.abs(currentVB.y - targetVB.y) < 0.001 &&
           Math.abs(currentVB.w - targetVB.w) < 0.001 &&
           Math.abs(currentVB.h - targetVB.h) < 0.001;
         
-        if (currentSame) return; // Уже достигли целевого состояния
+        if (currentSame) return;
       }
     }
 
-    // Сохраняем текущий targetVB для следующей проверки
     prevTargetVBRef.current = targetVB;
 
     const prefersReduced =
@@ -403,12 +424,11 @@ export function RussiaRegionsMapSvg({
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [targetVB]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fullVB, targetVB]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isOverview = !selectedRegionIds?.length;
 
-  // Для общего вида используем "none" чтобы карта растягивалась по вертикали без сохранения пропорций
-  // Для выбранных регионов тоже используем "none", так как viewBox уже адаптирован под пропорции контейнера
+  // xMidYMid meet - центрирует карту и сохраняет пропорции, вписывая в контейнер
   const preserveAspectRatioValue = "xMidYMid meet";
 
   if (error) {

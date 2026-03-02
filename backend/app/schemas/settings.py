@@ -17,6 +17,7 @@ class SystemSettingsUpdate(BaseModel):
   department_name: Optional[str] = None
   region_ids: Optional[List[UUID]] = None
   region: Optional[str] = None  # старое поле
+  deactivate_removed: Optional[bool] = False  # soft-delete данных удалённых регионов
 
   @field_validator("department_name", mode="before")
   @classmethod

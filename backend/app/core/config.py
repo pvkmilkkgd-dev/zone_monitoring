@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 2  # 2 часа
     ALGORITHM: str = "HS256"
     DATABASE_URL: str = Field(
-        default="postgresql+psycopg2://zone_user:Ural196User!@localhost:5432/zone_monitoring",
+        default="postgresql+psycopg://zone_user:zone_password@localhost:5432/zone_monitoring",
         description="SQLAlchemy-style database URL",
     )
     DEBUG: bool = Field(default=False, description="Режим отладки")

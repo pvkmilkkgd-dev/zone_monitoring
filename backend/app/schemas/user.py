@@ -66,4 +66,14 @@ class UserUpdateByAdmin(BaseModel):
 class UserSelfUpdate(BaseModel):
     username: Optional[str] = Field(None, description="Ваш новый логин")
     current_password: str = Field(..., description="Текущий пароль")
-    new_password: Optional[str] = Field(None, description="Новый пароль (если менять)")
+    new_password: Optional[str] = Field(None, min_length=6, max_length=128, description="Новый пароль (если менять)")
+    
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if len(v) < 6:
+                raise ValueError('Пароль должен содержать минимум 6 символов')
+            if len(v) > 128:
+                raise ValueError('Пароль слишком длинный (максимум 128 символов)')
+        return v

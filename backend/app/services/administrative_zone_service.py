@@ -30,7 +30,11 @@ class AdministrativeZoneService:
         zone = AdministrativeZone(
             map_id=zone_data.map_id,
             department_name=zone_data.department_name,
-            district_names=zone_data.district_names
+            description=zone_data.description,
+            district_names=zone_data.district_names,
+            layer_id=zone_data.layer_id,
+            sub_layer_id=zone_data.sub_layer_id,
+            sub_sub_layer_id=zone_data.sub_sub_layer_id,
         )
         self.db.add(zone)
         self.db.commit()

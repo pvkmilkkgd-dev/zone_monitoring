@@ -23,6 +23,7 @@ export interface SystemSettingsResponse {
 export interface SystemSettingsUpdatePayload {
   department_name: string | null;
   region_ids: string[]; // UUID[]
+  deactivate_removed?: boolean;
 }
 
 function getAuthHeaders() {
@@ -53,7 +54,12 @@ export async function fetchSystemSettings(): Promise<SystemSettingsResponse | nu
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
       console.error("fetchSystemSettings error body:", text);
-      // вернём null, чтобы страница не висела в загрузке
+      if (resp.status === 401) {
+        const err: any = new Error("Не авторизован");
+        err.status = 401;
+        throw err;
+      }
+      // вернём null для прочих ошибок, чтобы страница не висела в загрузке
       return null;
     }
 
@@ -83,7 +89,13 @@ export async function updateSystemSettings(
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
     console.error("[API] updateSystemSettings error body:", text);
-    throw new Error(`Не удалось сохранить настройки (HTTP ${resp.status})`);
+    const err: any = new Error(
+      resp.status === 401
+        ? "Сессия истекла. Войдите снова."
+        : `Не удалось сохранить настройки (HTTP ${resp.status})`
+    );
+    err.status = resp.status;
+    throw err;
   }
 
   const data = (await resp.json()) as SystemSettingsResponse;

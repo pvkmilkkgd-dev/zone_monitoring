@@ -1,9 +1,10 @@
-import { useEffect, useState, useRef, useMemo, useCallback } from "react";
-import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { Modal } from "../components/Modal";
 import {
   ComposableMap,
   Geographies,
   Geography,
+  ZoomableGroup,
 } from "react-simple-maps";
 import {
   getAdministrativeZones,
@@ -34,18 +35,19 @@ export function ZonesAndDevicesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Информация о выбранном регионе из настроек
-  const [geoUrl, setGeoUrl] = useState<string | null>(null);
-  const [regionName, setRegionName] = useState<string>("");
-  
+  // Информация о выбранных регионах из настроек
+  const [mergedGeoJson, setMergedGeoJson] = useState<any>(null);
+  const [selectedRegionNames, setSelectedRegionNames] = useState<string[]>([]);
+
   // Список всех районов из GeoJSON
   const [allDistricts, setAllDistricts] = useState<District[]>([]);
   
   // Состояние для настроек карты
-  const [mapConfig, setMapConfig] = useState<{ center: [number, number]; scale: number } | null>(null);
+  const [mapConfig, setMapConfig] = useState<{ center: [number, number]; scale: number; rotate?: [number, number, number] } | null>(null);
   
   // Состояние для отображения названия района при наведении
   const [hoveredDistrict, setHoveredDistrict] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   
   // Форма добавления зоны
   const [departmentName, setDepartmentName] = useState("");
@@ -89,29 +91,12 @@ export function ZonesAndDevicesPage() {
   const [nameError, setNameError] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Закрытие модальных окон по Escape
-  const closeDeleteModalEsc = useCallback(() => setDeleteModal({ open: false, zoneId: null, zoneName: '' }), []);
-  const closeEditModalEsc = useCallback(() => setEditModal({ open: false, zone: null, name: '', description: '', selectedDistricts: new Set() }), []);
-  const closeDistrictModalEsc = useCallback(() => setDistrictModal({ open: false, districtName: '', description: '' }), []);
-  const closeSuccessMessage = useCallback(() => setSuccessMessage(null), []);
-
-  useEscapeKey(deleteModal.open, closeDeleteModalEsc);
-  useEscapeKey(editModal.open, closeEditModalEsc);
-  useEscapeKey(districtModal.open, closeDistrictModalEsc);
-  useEscapeKey(successMessage !== null, closeSuccessMessage);
-
-  // Состояние для размеров контейнера карты
-  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const mapContainerRef = useRef<HTMLDivElement>(null);
   
-  // Состояние для зума карты
+  // ZoomableGroup — зум и пан обрабатываются внутри react-simple-maps (без лагов)
   const [zoomLevel, setZoomLevel] = useState(1);
-  const baseScaleRef = useRef<number | null>(null);
-  
-  // Состояние для сдвига карты (pan)
-  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
-  const isDraggingRef = useRef(false);
-  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
+  // Ключ для принудительного сброса ZoomableGroup (при нажатии «Сброс»)
+  const [zoomKey, setZoomKey] = useState(0);
 
   // Собираем все назначенные районы из существующих зон
   const assignedDistricts = useMemo(() => {
@@ -163,116 +148,10 @@ export function ZonesAndDevicesPage() {
     loadInitialData();
   }, []);
 
-  // Отслеживаем изменение размеров контейнера карты
-  useEffect(() => {
-    const container = mapContainerRef.current;
-    if (!container) return;
 
-    // Устанавливаем размер сразу
-    const rect = container.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      setMapSize({ width: rect.width, height: rect.height });
-    }
-
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0) {
-        setMapSize({ width, height });
-      }
-    });
-
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
-
-  // Обработчик зума колесиком и перетаскивания - добавляем напрямую к DOM
-  useEffect(() => {
-    const container = mapContainerRef.current;
-    if (!container || !geoUrl) return;
-
-    const handleWheelEvent = (e: WheelEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      setZoomLevel(prev => Math.max(0.5, Math.min(3, prev + delta)));
-    };
-
-    const handleMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return; // только левая кнопка
-      isDraggingRef.current = true;
-      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-      container.style.cursor = 'grabbing';
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isDraggingRef.current || !lastMousePosRef.current) return;
-      
-      const dx = e.clientX - lastMousePosRef.current.x;
-      const dy = e.clientY - lastMousePosRef.current.y;
-      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-      
-      // Более точная конвертация пикселей в градусы для проекции Меркатора
-      const currentScaleValue = (baseScaleRef.current || 3000) * zoomLevel;
-      // Коэффициент зависит от масштаба: чем больше scale, тем меньше градусов на пиксель
-      const degreesPerPx = 100 / currentScaleValue;
-      
-      setMapCenter(prev => {
-        const current = prev || mapConfig?.center || [61.85, 58.18];
-        return [
-          current[0] - dx * degreesPerPx,
-          current[1] + dy * degreesPerPx * 0.7 // корректировка для широты
-        ];
-      });
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = false;
-      lastMousePosRef.current = null;
-      container.style.cursor = 'grab';
-    };
-
-    const handleMouseLeave = () => {
-      isDraggingRef.current = false;
-      lastMousePosRef.current = null;
-      container.style.cursor = 'grab';
-    };
-
-    container.addEventListener('wheel', handleWheelEvent, { passive: false });
-    container.addEventListener('mousedown', handleMouseDown);
-    container.addEventListener('mousemove', handleMouseMove);
-    container.addEventListener('mouseup', handleMouseUp);
-    container.addEventListener('mouseleave', handleMouseLeave);
-    
-    return () => {
-      container.removeEventListener('wheel', handleWheelEvent);
-      container.removeEventListener('mousedown', handleMouseDown);
-      container.removeEventListener('mousemove', handleMouseMove);
-      container.removeEventListener('mouseup', handleMouseUp);
-      container.removeEventListener('mouseleave', handleMouseLeave);
-    };
-  }, [geoUrl, mapConfig, zoomLevel]);
-
-  // Сохраняем базовый scale и center при первой загрузке
-  useEffect(() => {
-    if (mapConfig && baseScaleRef.current === null) {
-      baseScaleRef.current = mapConfig.scale;
-      setMapCenter(mapConfig.center);
-    }
-  }, [mapConfig]);
-
-  // Вычисляем текущий scale с учетом зума
-  const currentScale = useMemo(() => {
-    if (!mapConfig) return 3000;
-    const base = baseScaleRef.current || mapConfig.scale;
-    return Math.round(base * zoomLevel);
-  }, [mapConfig, zoomLevel]);
-
-  // Функция для загрузки списка районов и вычисления bounds
-  const loadDistrictsAndBounds = async (url: string) => {
+  // Вычисление списка районов и bounds из объединённого GeoJSON
+  const computeDistrictsAndBounds = (geojson: any) => {
     try {
-      const response = await fetch(url);
-      const geojson = await response.json();
-      
       if (!geojson.features || geojson.features.length === 0) {
         return;
       }
@@ -288,7 +167,7 @@ export function ZonesAndDevicesPage() {
       
       setAllDistricts(districts);
 
-      // Вычисляем bounds
+      // Вычисляем bounds по всем районам
       let minLon = Infinity, minLat = Infinity;
       let maxLon = -Infinity, maxLat = -Infinity;
 
@@ -323,31 +202,87 @@ export function ZonesAndDevicesPage() {
         }
       });
 
-      if (minLon === Infinity || minLat === Infinity) {
+      if (minLon === Infinity) {
         return;
       }
 
+      // API сдвигает координаты через ST_ShiftLongitude для антимеридиана,
+      // поэтому координаты > 180° означают пересечение антимеридиана
+      const crossesAntimeridian = maxLon > 180;
+
       const centerLon = (minLon + maxLon) / 2;
-      const centerLat = (minLat + maxLat) / 2;
-      const width = maxLon - minLon;
-      const height = maxLat - minLat;
+
+      // Для Меркаторной проекции: y = ln(tan(π/4 + φ/2))
+      const mercatorY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2));
       
-      const mapWidth = 800;
-      const mapHeight = 400;
-      const paddingFactor = 0.7;
-      const scaleX = (mapWidth / width) * paddingFactor;
-      const scaleY = (mapHeight / height) * paddingFactor;
-      const baseScale = Math.min(scaleX, scaleY);
-      const finalScale = Math.round(baseScale * 40);
-      const clampedScale = Math.max(500, Math.min(8000, finalScale));
+      const mercYMin = mercatorY(minLat);
+      const mercYMax = mercatorY(maxLat);
+      const mercYCenter = (mercYMin + mercYMax) / 2;
+      const centerLat = (2 * Math.atan(Math.exp(mercYCenter)) - Math.PI / 2) * 180 / Math.PI;
       
-      setMapConfig({
-        center: [centerLon, centerLat],
-        scale: clampedScale,
-      });
+      const deltaLonRad = (maxLon - minLon) * Math.PI / 180;
+      const deltaMercY = Math.abs(mercYMax - mercYMin);
+      
+      // Масштаб по внутренним размерам SVG viewBox (ComposableMap: 800×600)
+      const svgW = 800;
+      const svgH = 600;
+      const scaleX = svgW / deltaLonRad;
+      const scaleY = svgH / deltaMercY;
+      const clampedScale = Math.max(50, Math.min(80000, Math.round(Math.min(scaleX, scaleY) * 0.88)));
+      
+      if (crossesAntimeridian) {
+        // Для антимеридиана: rotation сдвигает центр проекции,
+        // center задаётся относительно повёрнутой проекции
+        const rotateLon = centerLon > 180 ? centerLon - 360 : centerLon;
+        setMapConfig({
+          center: [0, centerLat],
+          scale: clampedScale,
+          rotate: [-rotateLon, 0, 0],
+        });
+      } else {
+        setMapConfig({
+          center: [centerLon, centerLat],
+          scale: clampedScale,
+        });
+      }
     } catch (error) {
-      console.error('Error loading districts:', error);
+      console.error('Error computing districts and bounds:', error);
     }
+  };
+
+  // Загрузка всех выбранных регионов одновременно
+  const loadSelectedRegions = async (regions: Region[], selectedIds: string[]) => {
+    const selected = regions.filter(r => selectedIds.includes(r.id));
+    if (selected.length === 0) return;
+
+    setSelectedRegionNames(selected.map(r => r.name));
+
+    // Сброс состояния карты
+    setZoomLevel(1);
+    setZoomKey(k => k + 1);
+    setMapConfig(null);
+
+    // Загружаем GeoJSON для каждого выбранного региона параллельно
+    const fetches = selected.map(async (region) => {
+      const url = `/maps/ru/region/${region.id}/districts.geojson?v=2`;
+      const resp = await fetch(url);
+      if (!resp.ok) return null;
+      return resp.json();
+    });
+
+    const geoJsons = (await Promise.all(fetches)).filter(Boolean);
+
+    // Объединяем все features в один FeatureCollection
+    const allFeatures: any[] = [];
+    geoJsons.forEach((gj: any) => {
+      if (gj?.features) {
+        allFeatures.push(...gj.features);
+      }
+    });
+
+    const merged = { type: "FeatureCollection", features: allFeatures };
+    setMergedGeoJson(merged);
+    computeDistrictsAndBounds(merged);
   };
 
   const loadInitialData = async () => {
@@ -355,28 +290,25 @@ export function ZonesAndDevicesPage() {
       setLoading(true);
       setError(null);
 
-      const settings = await fetchSystemSettings();
-      
+      // Загружаем настройки и список регионов параллельно
+      const [settings, regionsResp] = await Promise.all([
+        fetchSystemSettings(),
+        fetch("/api/regions"),
+      ]);
+
+      if (!regionsResp.ok) {
+        setError("Не удалось загрузить список регионов");
+        return;
+      }
+
+      const regions = (await regionsResp.json()) as Region[];
+      regions.sort((a: Region, b: Region) => a.name.localeCompare(b.name, 'ru'));
+
       if (settings && settings.region_ids && settings.region_ids.length > 0) {
-        const primaryRegionId = settings.region_ids[0];
-        
-        const regionsResp = await fetch("/api/regions");
-        if (regionsResp.ok) {
-          const regions = (await regionsResp.json()) as Region[];
-          const region = regions.find((r) => r.id === primaryRegionId);
-          if (region) {
-            setRegionName(region.name);
-            const url = `/maps/ru/region/${primaryRegionId}/districts.geojson`;
-            setGeoUrl(url);
-            await loadDistrictsAndBounds(url);
-          } else {
-            setError(`Информация о регионе с ID ${primaryRegionId} не найдена`);
-          }
-        } else {
-          setError("Не удалось загрузить список регионов");
-        }
+        await loadSelectedRegions(regions, settings.region_ids.map(String));
       } else {
-        setError("Регион не выбран в настройках системы");
+        setSelectedRegionNames([]);
+        setMergedGeoJson(null);
       }
 
       const data = await getAdministrativeZones(1);
@@ -757,84 +689,103 @@ export function ZonesAndDevicesPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 h-[calc(100vh-210px)]">
           {/* Карта */}
-          <div className="xl:col-span-2 rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4">
+          <div className="xl:col-span-2 rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold">Карта: {regionName}</h2>
+              <h2 className="text-lg font-semibold">
+                {selectedRegionNames.length > 0
+                  ? selectedRegionNames.join(", ")
+                  : "Регион не выбран"}
+              </h2>
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>{Math.round(zoomLevel * 100)}%</span>
                 <button
-                  onClick={() => { setZoomLevel(1); setMapCenter(mapConfig?.center || null); }}
+                  onClick={() => { setZoomLevel(1); setZoomKey(k => k + 1); }}
                   className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300"
                 >
                   Сброс
                 </button>
-                </div>
+              </div>
             </div>
             
-            {geoUrl ? (
-              <div className="relative">
+            {mergedGeoJson ? (
+              <div className="relative flex-1 min-h-0 flex flex-col">
                 <div 
                   ref={mapContainerRef}
-                  className="w-full h-[calc(100vh-240px)] min-h-[400px] rounded-xl overflow-hidden bg-slate-800/50 relative cursor-grab active:cursor-grabbing"
+                  className="w-full flex-1 min-h-0 rounded-xl overflow-hidden bg-slate-800/50 relative"
+                  onMouseMove={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                  }}
                 >
                   <ComposableMap
                     projection="geoMercator"
                     projectionConfig={{ 
-                      scale: currentScale, 
-                      center: mapCenter || mapConfig?.center || [61.85, 58.18] 
+                      scale: mapConfig?.scale || 3000, 
+                      center: mapConfig?.center || [61.85, 58.18],
+                      ...(mapConfig?.rotate ? { rotate: mapConfig.rotate } : {}),
                     }}
-                    width={mapSize.width || 800}
-                    height={mapSize.height || 400}
-                    style={{ width: "100%", height: "100%", display: "block" }}
+                    style={{ width: "100%", height: "100%" }}
                   >
-                    <Geographies geography={geoUrl}>
-                    {({ geographies }) => {
-                      const validGeographies = geographies.filter((geo) => {
-                          if (!geo.geometry || !geo.geometry.coordinates) return false;
-                        const coords = geo.geometry.coordinates;
-                        const geomType = geo.geometry.type;
-                          return (geomType === 'MultiPolygon' || geomType === 'Polygon') && Array.isArray(coords) && coords.length > 0;
-                      });
-                      
-                      return validGeographies.map((geo, index) => {
-                        const props = geo.properties as any;
-                        const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
-                          const colors = getDistrictColor(districtName);
-                          
-                          return (
-                            <Geography
-                              key={geo.rsmKey || `district-${index}`}
-                              geography={geo}
-                              onMouseEnter={() => setHoveredDistrict(districtName)}
-                              onMouseLeave={() => setHoveredDistrict(null)}
-                              onClick={() => {
-                                if (!assignedDistricts.has(districtName)) {
-                                  handleToggleDistrict(districtName);
-                                }
-                              }}
-                              stroke={colors.stroke}
-                              strokeWidth={0.5 / zoomLevel}
-                              style={{
-                                default: { fill: colors.fill, outline: "none" },
-                                hover: {
-                                  fill: assignedDistricts.has(districtName) ? colors.fill : "rgba(14, 165, 233, 0.3)",
-                                  outline: "none",
-                                  cursor: assignedDistricts.has(districtName) ? "default" : "pointer" 
-                                },
-                                pressed: { fill: colors.fill, outline: "none" },
-                              }}
-                            />
-                          );
+                    <ZoomableGroup
+                      key={zoomKey}
+                      center={[0, 0]}
+                      zoom={1}
+                      minZoom={0.5}
+                      maxZoom={8}
+                      onMoveEnd={({ zoom: z }) => setZoomLevel(z)}
+                    >
+                      <Geographies geography={mergedGeoJson}>
+                      {({ geographies }) => {
+                        const validGeographies = geographies.filter((geo) => {
+                            if (!geo.geometry || !geo.geometry.coordinates) return false;
+                          const coords = geo.geometry.coordinates;
+                          const geomType = geo.geometry.type;
+                            return (geomType === 'MultiPolygon' || geomType === 'Polygon') && Array.isArray(coords) && coords.length > 0;
                         });
-                    }}
-                  </Geographies>
-                </ComposableMap>
+                        
+                        return validGeographies.map((geo, index) => {
+                          const props = geo.properties as any;
+                          const districtName = props?.name || props?.NAME || `Район ${index + 1}`;
+                            const colors = getDistrictColor(districtName);
+                            
+                            return (
+                              <Geography
+                                key={geo.rsmKey || `district-${index}`}
+                                geography={geo}
+                                onMouseEnter={() => setHoveredDistrict(districtName)}
+                                onMouseLeave={() => setHoveredDistrict(null)}
+                                onClick={() => {
+                                  if (!assignedDistricts.has(districtName)) {
+                                    handleToggleDistrict(districtName);
+                                  }
+                                }}
+                                stroke={colors.stroke}
+                                strokeWidth={0.5}
+                                style={{
+                                  default: { fill: colors.fill, outline: "none" },
+                                  hover: {
+                                    fill: assignedDistricts.has(districtName) ? colors.fill : "rgba(14, 165, 233, 0.3)",
+                                    outline: "none",
+                                    cursor: assignedDistricts.has(districtName) ? "default" : "pointer" 
+                                  },
+                                  pressed: { fill: colors.fill, outline: "none" },
+                                }}
+                              />
+                            );
+                          });
+                      }}
+                    </Geographies>
+                    </ZoomableGroup>
+                  </ComposableMap>
                 </div>
                 
                 {hoveredDistrict && (
-                  <div className="absolute top-4 left-4 bg-slate-900/95 px-4 py-2 rounded-lg text-sm font-semibold text-sky-400 border border-sky-500/30 shadow-lg pointer-events-none z-10">
+                  <div 
+                    className="absolute bg-slate-900/95 px-3 py-1.5 rounded-lg text-xs font-semibold text-sky-400 border border-sky-500/30 shadow-lg pointer-events-none z-10 whitespace-nowrap"
+                    style={{ left: mousePos.x + 12, top: mousePos.y - 10 }}
+                  >
                     {hoveredDistrict}
                     {assignedDistricts.has(hoveredDistrict) && (
                       <span className="ml-2 text-green-400 font-normal">(назначен)</span>
@@ -843,16 +794,16 @@ export function ZonesAndDevicesPage() {
                 )}
               </div>
             ) : (
-              <div className="h-[calc(100vh-240px)] min-h-[400px] rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-400">
+              <div className="flex-1 min-h-0 rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-400">
                 {loading ? "Загрузка карты..." : "Карта не загружена. Проверьте настройки региона."}
               </div>
             )}
             </div>
             
           {/* Районы и форма добавления */}
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4 overflow-hidden">
             {/* Список районов */}
-            <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4 h-[calc(100vh-420px)] min-h-[250px] max-h-[350px] flex flex-col">
+            <div className="rounded-2xl bg-slate-900/80 border border-slate-700/60 shadow-xl shadow-sky-900/40 backdrop-blur p-4 flex-1 min-h-0 flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-base font-semibold">Районы ({availableDistricts.length})</h2>
                 <div className="flex gap-2">
@@ -1061,10 +1012,7 @@ export function ZonesAndDevicesPage() {
           </div>
 
       {/* Модальное окно удаления */}
-      {deleteModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeDeleteModal}></div>
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+      <Modal open={deleteModal.open} onClose={closeDeleteModal} className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <h3 className="text-lg font-semibold text-white mb-2">Удалить подразделение?</h3>
             <p className="text-slate-400 text-sm mb-6">
               Вы уверены, что хотите удалить подразделение <span className="text-white font-medium">«{deleteModal.zoneName}»</span>? Это действие нельзя отменить.
@@ -1083,15 +1031,10 @@ export function ZonesAndDevicesPage() {
                 Удалить
               </button>
         </div>
-      </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Модальное окно успешного удаления */}
-      {successMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSuccessMessage(null)}></div>
-          <div className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl">
+      <Modal open={successMessage !== null} onClose={() => setSuccessMessage(null)} className="relative bg-slate-900 border border-green-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
                 <span className="text-green-400 text-xl">✓</span>
@@ -1107,15 +1050,10 @@ export function ZonesAndDevicesPage() {
                 OK
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Модальное окно редактирования подразделения */}
-      {editModal.open && editModal.zone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeEditModal}></div>
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <Modal open={editModal.open} onClose={closeEditModal} closeOnEnter={false} className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">Редактирование подразделения</h3>
               <button
@@ -1233,15 +1171,10 @@ export function ZonesAndDevicesPage() {
                 {editSaving ? 'Сохранение...' : 'Сохранить'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Модальное окно описания района */}
-      {districtModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeDistrictModal}></div>
-          <div className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full mx-4 shadow-2xl">
+      <Modal open={districtModal.open} onClose={closeDistrictModal} closeOnEnter={false} className="relative bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">Описание района</h3>
               <button
@@ -1288,9 +1221,7 @@ export function ZonesAndDevicesPage() {
                 {districtSaving ? 'Сохранение...' : 'Сохранить'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }
