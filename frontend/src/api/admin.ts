@@ -38,8 +38,6 @@ function getAuthHeaders() {
 }
 
 export async function fetchSystemSettings(): Promise<SystemSettingsResponse | null> {
-  console.log("[API] fetchSystemSettings called, base =", API_BASE_URL);
-
   try {
     const resp = await fetch(`${API_BASE_URL}/admin/settings/`, {
       method: "GET",
@@ -48,8 +46,6 @@ export async function fetchSystemSettings(): Promise<SystemSettingsResponse | nu
         ...getAuthHeaders(),
       },
     });
-
-    console.log("[API] fetchSystemSettings resp:", resp.status, resp.statusText);
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
@@ -64,7 +60,6 @@ export async function fetchSystemSettings(): Promise<SystemSettingsResponse | nu
     }
 
     const data = await resp.json();
-    console.log("[API] fetchSystemSettings data:", data);
     return data;
   } catch (e) {
     console.error("[API] fetchSystemSettings network error:", e);
@@ -75,8 +70,6 @@ export async function fetchSystemSettings(): Promise<SystemSettingsResponse | nu
 export async function updateSystemSettings(
   payload: SystemSettingsUpdatePayload,
 ): Promise<SystemSettingsResponse> {
-  console.log("[API] updateSystemSettings called with:", payload);
-
   const resp = await fetch(`${API_BASE_URL}/admin/settings/`, {
     method: "PUT",
     headers: {
@@ -99,7 +92,6 @@ export async function updateSystemSettings(
   }
 
   const data = (await resp.json()) as SystemSettingsResponse;
-  console.log("[API] updateSystemSettings data:", data);
   return data;
 }
 
