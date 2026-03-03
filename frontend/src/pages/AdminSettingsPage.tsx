@@ -25,7 +25,8 @@ export function AdminSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [regions, setRegions] = useState<Region[]>([]);
   const [regionsLoading, setRegionsLoading] = useState(false);
-  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [notification, setNotification] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+  const [regionUploading, setRegionUploading] = useState(false);
   const [showDeactivateWarning, setShowDeactivateWarning] = useState(false);
   const [mapKey, setMapKey] = useState(0); // Ключ для принудительного обновления карты
   const deptRef = useRef<HTMLTextAreaElement>(null);
@@ -117,17 +118,18 @@ export function AdminSettingsPage() {
     setSelectedRegionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const uploadRegion = async (file: File) => {
+  const uploadRegionFull = async (file: File) => {
     const token = localStorage.getItem("zone_jwt") || localStorage.getItem("access_token") || localStorage.getItem("accessToken");
     const fd = new FormData();
     fd.append("file", file);
+
+    setNotification({ type: "info", message: "Загрузка данных из файла..." });
 
     const resp = await fetch("/api/v1/admin/regions/import", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: fd,
     });
-
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
       throw new Error(text || `Upload failed: ${resp.status}`);
@@ -381,28 +383,32 @@ export function AdminSettingsPage() {
                     </p>
 
                     <div className="pt-1">
-                      <label className="block text-xs text-slate-400 mb-1">Загрузить регион (GeoJSON)</label>
+                      <label className="block text-xs text-slate-400 mb-1">Загрузить регион + районы + города (GeoJSON)</label>
                       <input
                         type="file"
                         accept=".geojson,.json"
                         className="text-xs text-slate-300 file:mr-3 file:rounded-lg file:border file:border-slate-600 file:bg-slate-800 file:px-3 file:py-1.5 file:text-slate-100 file:cursor-pointer"
+                        disabled={regionUploading}
                         onChange={async (e) => {
                           const f = e.target.files?.[0];
                           if (!f) return;
+                          setRegionUploading(true);
                           try {
-                            await uploadRegion(f);
+                            const data = await uploadRegionFull(f);
                             const res = await fetch("/api/regions");
                             if (res.ok) {
                               const list = (await res.json()) as Region[];
                               setRegions(list);
                             }
-                            setNotification({ type: "success", message: "Регион успешно загружен. Карта обновлена." });
-                            setMapKey((prev) => prev + 1); // Принудительно обновляем карту
-                            setTimeout(() => setNotification(null), 3000);
+                            const msg = `Регион загружен. Районов: ${data?.districts_loaded ?? 0}, городов: ${data?.cities_loaded ?? 0}`;
+                            setNotification({ type: "success", message: msg });
+                            setMapKey((prev) => prev + 1);
+                            setTimeout(() => setNotification(null), 5000);
                           } catch (err: any) {
                             setNotification({ type: "error", message: err?.message || "Ошибка загрузки региона" });
                             setTimeout(() => setNotification(null), 5000);
                           } finally {
+                            setRegionUploading(false);
                             e.currentTarget.value = "";
                           }
                         }}
@@ -520,21 +526,30 @@ export function AdminSettingsPage() {
       </Modal>
 
       {/* Модальное окно уведомлений */}
-      <Modal open={!!notification} onClose={() => setNotification(null)} className="relative rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-2xl shadow-sky-900/40 max-w-md w-full p-6 backdrop-blur">
-            <button
-              onClick={() => setNotification(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors"
-              aria-label="Закрыть"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+      <Modal open={!!notification} onClose={() => notification?.type !== "info" ? setNotification(null) : undefined} className="relative rounded-3xl bg-slate-900/95 border border-slate-700/60 shadow-2xl shadow-sky-900/40 max-w-md w-full p-6 backdrop-blur">
+            {notification?.type !== "info" && (
+              <button
+                onClick={() => setNotification(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors"
+                aria-label="Закрыть"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
             <div className="flex items-start gap-4">
               {notification?.type === "success" ? (
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
                   <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              ) : notification?.type === "info" ? (
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-500/20 border border-amber-400/30 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-amber-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                   </svg>
                 </div>
               ) : (
@@ -546,27 +561,31 @@ export function AdminSettingsPage() {
               )}
               <div className="flex-1 pt-1">
                 <h3 className={`text-lg font-semibold mb-2 ${
-                  notification?.type === "success" ? "text-sky-300" : "text-red-300"
+                  notification?.type === "success" ? "text-sky-300"
+                    : notification?.type === "info" ? "text-amber-300"
+                    : "text-red-300"
                 }`}>
-                  {notification?.type === "success" ? "Успешно" : "Ошибка"}
+                  {notification?.type === "success" ? "Успешно" : notification?.type === "info" ? "Загрузка..." : "Ошибка"}
                 </h3>
                 <p className="text-slate-200 text-sm leading-relaxed">
                   {notification?.message}
                 </p>
               </div>
             </div>
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setNotification(null)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  notification?.type === "success"
-                    ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30"
-                    : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
-                }`}
-              >
-                Закрыть
-              </button>
-            </div>
+            {notification?.type !== "info" && (
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setNotification(null)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    notification?.type === "success"
+                      ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30"
+                      : "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
+                  }`}
+                >
+                  Закрыть
+                </button>
+              </div>
+            )}
       </Modal>
     </div>
   );

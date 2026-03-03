@@ -6,6 +6,7 @@ import {
   ZoomableGroup,
   Marker,
 } from "react-simple-maps";
+import { geoMercator } from "d3-geo";
 import { requireAuth, handleAuthError, logout, canEdit, isAdmin } from "../utils/auth";
 import { Modal } from "../components/Modal";
 import { fetchSystemSettings, fetchCurrentUser } from "../api/admin";
@@ -345,6 +346,65 @@ export function SituationPage() {
     }
   }, [districtStats]);
 
+  // Убираем пересечения подписей городов: приоритет у более важных и крупных городов
+  const visibleCityLabels = useMemo(() => {
+    const shouldShowByZoom = (importance: number, z: number) => {
+      if (importance <= 3) return true;
+      if (importance <= 8) return z >= 1.3;
+      if (importance <= 15) return z >= 1.8;
+      return z >= 2.5;
+    };
+
+    const baseFontSize = (importance: number) => {
+      if (importance <= 1) return 11;
+      if (importance <= 3) return 9;
+      if (importance <= 8) return 8;
+      return 7;
+    };
+
+    const projection = geoMercator().scale(mapScale).center(center);
+    if (mapRotate) projection.rotate(mapRotate);
+
+    const candidates = cities
+      .filter((city) => shouldShowByZoom(city.importance, currentZoom))
+      .sort((a, b) => a.importance - b.importance || b.population - a.population);
+
+    const placedBoxes: Array<{ left: number; right: number; top: number; bottom: number }> = [];
+    const result: Array<{ city: City; fontSize: number }> = [];
+
+    for (const city of candidates) {
+      const projected = projection([city.lon, city.lat]);
+      if (!projected) continue;
+
+      const [px, py] = projected;
+      const x = px * currentZoom;
+      const y = py * currentZoom;
+      const fontSize = baseFontSize(city.importance) / currentZoom;
+      const markerOffsetY = 4 / currentZoom;
+      const labelWidth = city.name.length * fontSize * 0.62;
+      const labelHeight = fontSize * 1.2;
+      const padding = 2;
+
+      const box = {
+        left: x - labelWidth / 2 - padding,
+        right: x + labelWidth / 2 + padding,
+        top: y - markerOffsetY - labelHeight - padding,
+        bottom: y - markerOffsetY + padding,
+      };
+
+      const overlaps = placedBoxes.some(
+        (b) =>
+          !(box.right < b.left || box.left > b.right || box.bottom < b.top || box.top > b.bottom)
+      );
+      if (overlaps) continue;
+
+      placedBoxes.push(box);
+      result.push({ city, fontSize });
+    }
+
+    return result;
+  }, [cities, currentZoom, mapScale, center, mapRotate]);
+
   // Обработчик клика по району
   const handleDistrictClick = (districtName: string) => {
     setSelectedDistrict(districtName);
@@ -613,44 +673,31 @@ export function SituationPage() {
                   })
                 }
               </Geographies>
-              {cities
-                .filter(city => {
-                  if (city.importance <= 3) return true;
-                  if (city.importance <= 8) return currentZoom >= 1.3;
-                  if (city.importance <= 15) return currentZoom >= 1.8;
-                  return currentZoom >= 2.5;
-                })
-                .map((city) => {
-                  const baseSize = city.importance <= 1 ? 11
-                    : city.importance <= 3 ? 9
-                    : city.importance <= 8 ? 8
-                    : 7;
-                  return (
-                    <Marker key={`${city.name}-${city.lat}-${city.lon}`} coordinates={[city.lon, city.lat]}>
-                      <circle
-                        r={Math.max(1, 2.5 - city.importance * 0.05) / currentZoom}
-                        fill="#fafafa"
-                        stroke="#334155"
-                        strokeWidth={0.3 / currentZoom}
-                      />
-                      <text
-                        textAnchor="middle"
-                        y={-(4 / currentZoom)}
-                        style={{
-                          fontFamily: "system-ui, sans-serif",
-                          fontSize: `${baseSize / currentZoom}px`,
-                          fill: "#e2e8f0",
-                          stroke: "#0f172a",
-                          strokeWidth: 3 / currentZoom,
-                          paintOrder: "stroke",
-                          pointerEvents: "none",
-                        }}
-                      >
-                        {city.name}
-                      </text>
-                    </Marker>
-                  );
-                })}
+              {visibleCityLabels.map(({ city, fontSize }) => (
+                <Marker key={`${city.name}-${city.lat}-${city.lon}`} coordinates={[city.lon, city.lat]}>
+                  <circle
+                    r={Math.max(1, 2.5 - city.importance * 0.05) / currentZoom}
+                    fill="#fafafa"
+                    stroke="#334155"
+                    strokeWidth={0.3 / currentZoom}
+                  />
+                  <text
+                    textAnchor="middle"
+                    y={-(4 / currentZoom)}
+                    style={{
+                      fontFamily: "system-ui, sans-serif",
+                      fontSize: `${fontSize}px`,
+                      fill: "#e2e8f0",
+                      stroke: "#0f172a",
+                      strokeWidth: 3 / currentZoom,
+                      paintOrder: "stroke",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {city.name}
+                  </text>
+                </Marker>
+              ))}
             </ZoomableGroup>
           </ComposableMap>
       )}
