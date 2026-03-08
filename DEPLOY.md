@@ -21,6 +21,16 @@ Edit `.env` and set secure values:
 - `POSTGRES_PASSWORD`
 - `SECRET_KEY`
 
+### Windows visual installer (no manual `.env` editing)
+
+Run:
+
+```powershell
+.\install-wizard.ps1
+```
+
+Then fill fields in the window and click **Install**.
+
 ## 2) Run the project
 
 ```bash
