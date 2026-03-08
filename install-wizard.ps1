@@ -17,7 +17,7 @@ function New-Secret([int]$length = 48) {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Zone Monitoring Installer"
-$form.Size = New-Object System.Drawing.Size(560, 420)
+$form.Size = New-Object System.Drawing.Size(560, 380)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedDialog"
 $form.MaximizeBox = $false
@@ -28,8 +28,7 @@ $labels = @(
     @{ Text = "Postgres DB"; Y = 20; Name = "POSTGRES_DB"; Value = "zone_monitoring" },
     @{ Text = "Postgres User"; Y = 60; Name = "POSTGRES_USER"; Value = "zone_user" },
     @{ Text = "Postgres Password"; Y = 100; Name = "POSTGRES_PASSWORD"; Value = "" },
-    @{ Text = "App Port"; Y = 140; Name = "APP_PORT"; Value = "8080" },
-    @{ Text = "Secret Key"; Y = 180; Name = "SECRET_KEY"; Value = (New-Secret 64) }
+    @{ Text = "App Port"; Y = 140; Name = "APP_PORT"; Value = "8080" }
 )
 
 $inputs = @{}
@@ -51,30 +50,23 @@ foreach ($field in $labels) {
     $inputs[$field.Name] = $tb
 }
 
-$debugCheck = New-Object System.Windows.Forms.CheckBox
-$debugCheck.Text = "Enable DEBUG mode"
-$debugCheck.Location = New-Object System.Drawing.Point(200, 220)
-$debugCheck.Size = New-Object System.Drawing.Size(200, 24)
-$debugCheck.Font = $font
-$form.Controls.Add($debugCheck)
-
 $info = New-Object System.Windows.Forms.Label
-$info.Text = "This will create .env and run: docker compose up -d --build"
-$info.Location = New-Object System.Drawing.Point(20, 255)
+$info.Text = "This will create .env, auto-generate SECRET_KEY, set DEBUG=false, and run docker compose up -d --build"
+$info.Location = New-Object System.Drawing.Point(20, 200)
 $info.Size = New-Object System.Drawing.Size(510, 40)
 $info.Font = $font
 $form.Controls.Add($info)
 
 $btnInstall = New-Object System.Windows.Forms.Button
 $btnInstall.Text = "Install"
-$btnInstall.Location = New-Object System.Drawing.Point(320, 310)
+$btnInstall.Location = New-Object System.Drawing.Point(320, 270)
 $btnInstall.Size = New-Object System.Drawing.Size(100, 34)
 $btnInstall.Font = $font
 $form.Controls.Add($btnInstall)
 
 $btnCancel = New-Object System.Windows.Forms.Button
 $btnCancel.Text = "Cancel"
-$btnCancel.Location = New-Object System.Drawing.Point(430, 310)
+$btnCancel.Location = New-Object System.Drawing.Point(430, 270)
 $btnCancel.Size = New-Object System.Drawing.Size(100, 34)
 $btnCancel.Font = $font
 $form.Controls.Add($btnCancel)
@@ -83,20 +75,21 @@ $btnCancel.Add_Click({ $form.Close() })
 
 $btnInstall.Add_Click({
     try {
-        foreach ($k in @("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "APP_PORT", "SECRET_KEY")) {
+        foreach ($k in @("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "APP_PORT")) {
             if ([string]::IsNullOrWhiteSpace($inputs[$k].Text)) {
                 [System.Windows.Forms.MessageBox]::Show("Field $k is required.", "Validation", "OK", "Warning") | Out-Null
                 return
             }
         }
 
+        $secretKey = New-Secret 64
         $envContent = @"
 POSTGRES_DB=$($inputs["POSTGRES_DB"].Text.Trim())
 POSTGRES_USER=$($inputs["POSTGRES_USER"].Text.Trim())
 POSTGRES_PASSWORD=$($inputs["POSTGRES_PASSWORD"].Text.Trim())
 APP_PORT=$($inputs["APP_PORT"].Text.Trim())
-DEBUG=$($debugCheck.Checked.ToString().ToLower())
-SECRET_KEY=$($inputs["SECRET_KEY"].Text.Trim())
+DEBUG=false
+SECRET_KEY=$secretKey
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ALGORITHM=HS256
 "@

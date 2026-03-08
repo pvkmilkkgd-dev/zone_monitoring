@@ -29,7 +29,8 @@ Run:
 .\install-wizard.ps1
 ```
 
-Then fill fields in the window and click **Install**.
+Then fill DB/port fields and click **Install**.
+`SECRET_KEY` is generated automatically and `DEBUG` is set to `false`.
 
 ## 2) Run the project
 
