@@ -27,6 +27,10 @@ Edit `.env` and set secure values:
 docker compose up -d --build
 ```
 
+On first start, PostgreSQL automatically restores baseline data from:
+
+`deploy/seed/001_seed.sql.gz`
+
 ## 3) Check status
 
 ```bash
@@ -58,5 +62,12 @@ docker compose restart
 Update after code changes:
 
 ```bash
+docker compose up -d --build
+```
+
+Reinitialize database from seed (WARNING: deletes current DB data):
+
+```bash
+docker compose down -v
 docker compose up -d --build
 ```
